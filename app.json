@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "pitchpocket",
+    "name": "PitchPocket",
     "slug": "pitchpocket",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,9 +8,12 @@
     "scheme": "pitchpocket",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.pitchpocket.app",
+      "supportsTablet": false
     },
     "android": {
+      "package": "com.pitchpocket.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
