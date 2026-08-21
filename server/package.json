@@ -1,0 +1,14 @@
+{
+  "name": "pitchpocket-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
+    "openai": "^4.104.0"
+  },
+  "devDependencies": {
+    "@vercel/node": "^5.1.0",
+    "typescript": "^5.7.0"
+  }
+}

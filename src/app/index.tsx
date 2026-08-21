@@ -1,4 +1,4 @@
-import { Redirect } from 'expo-router';
+import { Link, Redirect } from 'expo-router';
 import { Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -26,11 +26,18 @@ export default function HomeScreen() {
           Stage 2: onboarding complete. Home screen lands in stage 4.
         </ThemedText>
         {__DEV__ ? (
-          <Pressable onPress={resetOnboarding} style={styles.devResetButton}>
-            <ThemedText type="small" themeColor="textSecondary">
-              Reset onboarding (dev)
-            </ThemedText>
-          </Pressable>
+          <>
+            <Pressable onPress={resetOnboarding} style={styles.devResetButton}>
+              <ThemedText type="small" themeColor="textSecondary">
+                Reset onboarding (dev)
+              </ThemedText>
+            </Pressable>
+            <Link href="/debrief-test" style={styles.devResetButton}>
+              <ThemedText type="small" themeColor="textSecondary">
+                Debrief test (dev)
+              </ThemedText>
+            </Link>
+          </>
         ) : null}
       </SafeAreaView>
     </ThemedView>

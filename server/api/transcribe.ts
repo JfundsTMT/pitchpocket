@@ -1,0 +1,63 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import OpenAI, { toFile } from 'openai';
+
+// Matches the client's recording cap (LOW_QUALITY preset, duration-limited) with
+// headroom below Vercel's hard 4.5MB request body ceiling. Decoded buffer, not the
+// base64 string, since base64 inflates the wire size by ~33%.
+const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL ?? 'gpt-4o-mini-transcribe';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Device-Id');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'method_not_allowed' });
+    return;
+  }
+
+  const deviceId = req.headers['x-device-id'];
+  if (!deviceId || typeof deviceId !== 'string') {
+    res.status(401).json({ error: 'missing_device_id' });
+    return;
+  }
+
+  const { audioBase64, mimeType } = req.body ?? {};
+  if (!audioBase64 || typeof audioBase64 !== 'string') {
+    res.status(400).json({ error: 'missing_audio' });
+    return;
+  }
+
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(audioBase64, 'base64');
+  } catch {
+    res.status(400).json({ error: 'invalid_audio_encoding' });
+    return;
+  }
+
+  if (buffer.byteLength > MAX_AUDIO_BYTES) {
+    res.status(413).json({ error: 'audio_too_large' });
+    return;
+  }
+
+  try {
+    const filename = mimeType === 'audio/wav' ? 'debrief.wav' : 'debrief.m4a';
+    const file = await toFile(buffer, filename);
+    const transcription = await openai.audio.transcriptions.create({
+      model: TRANSCRIBE_MODEL,
+      file,
+    });
+    res.status(200).json({ transcript: transcription.text });
+  } catch (error) {
+    console.error('transcribe failed', error);
+    res.status(502).json({ error: 'transcription_failed' });
+  }
+}

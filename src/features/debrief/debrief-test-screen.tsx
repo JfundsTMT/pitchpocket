@@ -1,0 +1,289 @@
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio';
+import { useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { Spacing } from '@/constants/theme';
+import { resolvePlayerContext } from '@/features/debrief/resolve-player-context';
+import { getEchoResponse, transcribeAudio, type EchoApiError } from '@/lib/echo-api';
+import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
+import { useTheme } from '@/hooks/use-theme';
+
+// Soft warning threshold shown in the UI. The real limit is enforced
+// server-side (see server/api/transcribe.ts MAX_AUDIO_BYTES) — recordings
+// past this point risk exceeding Vercel's 4.5MB request body cap once
+// base64-encoded, which surfaces as a clear "audio_too_large" retry state.
+const RECORDING_WARNING_SECONDS = 5 * 60;
+
+type ScreenState =
+  | { phase: 'loading_profile' }
+  | { phase: 'no_profile' }
+  | { phase: 'idle' }
+  | { phase: 'recording' }
+  | { phase: 'transcribing'; fileUri: string }
+  | { phase: 'transcribe_error'; fileUri: string; error: EchoApiError }
+  | { phase: 'thinking'; transcript: string }
+  | { phase: 'echo_error'; transcript: string; error: EchoApiError }
+  | { phase: 'done'; transcript: string; echoResponse: string };
+
+export function DebriefTestScreen() {
+  const [profile, setProfile] = useState<PlayerProfile | null>(null);
+  const [state, setState] = useState<ScreenState>({ phase: 'loading_profile' });
+  const recorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
+  const recorderState = useAudioRecorderState(recorder, 100);
+
+  useEffect(() => {
+    loadPlayerProfile().then((loaded) => {
+      setProfile(loaded);
+      setState(loaded ? { phase: 'idle' } : { phase: 'no_profile' });
+    });
+  }, []);
+
+  async function handleStartRecording() {
+    const permission = await requestRecordingPermissionsAsync();
+    if (!permission.granted) {
+      setState({
+        phase: 'transcribe_error',
+        fileUri: '',
+        error: { kind: 'server_error', message: 'Mic permission denied. Enable it in Settings to record a debrief.' },
+      });
+      return;
+    }
+    await setAudioModeAsync({ allowsRecording: true });
+    await recorder.prepareToRecordAsync();
+    recorder.record();
+    setState({ phase: 'recording' });
+  }
+
+  async function handleStopRecording() {
+    await recorder.stop();
+    const uri = recorder.uri;
+    if (!uri) {
+      setState({ phase: 'idle' });
+      return;
+    }
+    await runTranscription(uri);
+  }
+
+  async function runTranscription(fileUri: string) {
+    setState({ phase: 'transcribing', fileUri });
+    const result = await transcribeAudio(fileUri);
+    if (!result.ok) {
+      setState({ phase: 'transcribe_error', fileUri, error: result.error });
+      return;
+    }
+    await runEchoResponse(result.data.transcript);
+  }
+
+  async function runEchoResponse(transcript: string) {
+    if (!profile) return;
+    setState({ phase: 'thinking', transcript });
+    const result = await getEchoResponse(transcript, resolvePlayerContext(profile));
+    if (!result.ok) {
+      setState({ phase: 'echo_error', transcript, error: result.error });
+      return;
+    }
+    setState({ phase: 'done', transcript, echoResponse: result.data.echoResponse });
+  }
+
+  return (
+    <ThemedView style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ThemedText type="title" style={styles.title}>
+            Debrief test
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
+            Dev-only screen to test the recording → transcription → Echo pipeline end-to-end.
+          </ThemedText>
+
+          {renderBody(state, {
+            onStart: handleStartRecording,
+            onStop: handleStopRecording,
+            onRetryTranscribe: () => runTranscription(state.phase === 'transcribe_error' ? state.fileUri : ''),
+            onRetryEcho: () => runEchoResponse(state.phase === 'echo_error' ? state.transcript : ''),
+            onReset: () => setState({ phase: 'idle' }),
+            elapsedSeconds: recorderState.durationMillis ? Math.floor(recorderState.durationMillis / 1000) : 0,
+          })}
+        </ScrollView>
+      </SafeAreaView>
+    </ThemedView>
+  );
+}
+
+type BodyHandlers = {
+  onStart: () => void;
+  onStop: () => void;
+  onRetryTranscribe: () => void;
+  onRetryEcho: () => void;
+  onReset: () => void;
+  elapsedSeconds: number;
+};
+
+function renderBody(state: ScreenState, handlers: BodyHandlers) {
+  switch (state.phase) {
+    case 'loading_profile':
+      return null;
+    case 'no_profile':
+      return <ThemedText type="default">Complete onboarding first — no player profile found.</ThemedText>;
+    case 'idle':
+      return (
+        <PrimaryButton label="Start recording" onPress={handlers.onStart} />
+      );
+    case 'recording':
+      return (
+        <>
+          <ThemedText type="default" style={styles.status}>
+            Recording — {formatDuration(handlers.elapsedSeconds)}
+          </ThemedText>
+          {handlers.elapsedSeconds >= RECORDING_WARNING_SECONDS ? (
+            <ThemedText type="small" themeColor="textSecondary" style={styles.status}>
+              Getting long — wrap it up soon or the upload may be rejected.
+            </ThemedText>
+          ) : null}
+          <PrimaryButton label="Stop & send" onPress={handlers.onStop} />
+        </>
+      );
+    case 'transcribing':
+      return <ThemedText type="default">Transcribing your debrief…</ThemedText>;
+    case 'transcribe_error':
+      return (
+        <ErrorState
+          message={state.error.message}
+          onRetry={state.fileUri ? handlers.onRetryTranscribe : undefined}
+          onReset={handlers.onReset}
+        />
+      );
+    case 'thinking':
+      return (
+        <>
+          <ThemedText type="default" style={styles.status}>
+            Echo is thinking…
+          </ThemedText>
+          <TranscriptBlock transcript={state.transcript} />
+        </>
+      );
+    case 'echo_error':
+      return (
+        <>
+          <ErrorState message={state.error.message} onRetry={handlers.onRetryEcho} onReset={handlers.onReset} />
+          <TranscriptBlock transcript={state.transcript} />
+        </>
+      );
+    case 'done':
+      return (
+        <>
+          <ThemedView type="backgroundElement" style={styles.responseCard}>
+            <ThemedText type="default">{state.echoResponse}</ThemedText>
+          </ThemedView>
+          <TranscriptBlock transcript={state.transcript} />
+          <PrimaryButton label="Record another" onPress={handlers.onReset} />
+        </>
+      );
+    default:
+      return null;
+  }
+}
+
+function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const theme = useTheme();
+  return (
+    <Pressable onPress={onPress} style={[styles.primaryButton, { backgroundColor: theme.text }]}>
+      <ThemedText type="smallBold" themeColor="background">
+        {label}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
+function ErrorState({ message, onRetry, onReset }: { message: string; onRetry?: () => void; onReset: () => void }) {
+  return (
+    <ThemedView type="backgroundElement" style={styles.errorCard}>
+      <ThemedText type="default">{message}</ThemedText>
+      <ThemedView style={styles.errorActions}>
+        {onRetry ? <PrimaryButton label="Retry" onPress={onRetry} /> : null}
+        <Pressable onPress={onReset}>
+          <ThemedText type="link">Start over</ThemedText>
+        </Pressable>
+      </ThemedView>
+    </ThemedView>
+  );
+}
+
+function TranscriptBlock({ transcript }: { transcript: string }) {
+  return (
+    <ThemedView type="backgroundElement" style={styles.transcriptCard}>
+      <ThemedText type="small" themeColor="textSecondary">
+        TRANSCRIPT
+      </ThemedText>
+      <ThemedText type="small" style={styles.transcriptText}>
+        {transcript}
+      </ThemedText>
+    </ThemedView>
+  );
+}
+
+function formatDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  content: {
+    padding: Spacing.four,
+    gap: Spacing.three,
+    paddingBottom: Spacing.six,
+  },
+  title: {
+    marginBottom: Spacing.one,
+  },
+  subtitle: {
+    marginBottom: Spacing.two,
+  },
+  status: {
+    marginBottom: Spacing.one,
+  },
+  primaryButton: {
+    paddingVertical: Spacing.three,
+    borderRadius: Spacing.three,
+    alignItems: 'center',
+  },
+  responseCard: {
+    padding: Spacing.three,
+    borderRadius: Spacing.three,
+    gap: Spacing.two,
+  },
+  errorCard: {
+    padding: Spacing.three,
+    borderRadius: Spacing.three,
+    gap: Spacing.two,
+  },
+  errorActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+  },
+  transcriptCard: {
+    padding: Spacing.three,
+    borderRadius: Spacing.three,
+    gap: Spacing.one,
+  },
+  transcriptText: {
+    lineHeight: 20,
+  },
+});
