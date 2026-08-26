@@ -10,9 +10,19 @@ const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
 // ECONNRESET failures on file uploads from serverless environments — traced to the
 // SDK's default HTTP client resolving to the `node-fetch` package rather than Node's
 // native (undici-based) fetch, which handles large multipart uploads more reliably.
-// Passing the native fetch explicitly avoids the bug at the source; maxRetries above
-// the SDK default (2) is a second line of defense for genuinely transient failures.
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, fetch, maxRetries: 4 });
+// Node's native fetch, though, requires an explicit `duplex: 'half'` on any request
+// with a streamed body — a well-known undici quirk — and the OpenAI SDK doesn't set
+// it, so a bare fetch override 400s. This wrapper adds it whenever a body is present.
+const duplexSafeFetch: typeof fetch = (input, init) => {
+  if (init?.body) {
+    return fetch(input, { ...init, duplex: 'half' } as RequestInit);
+  }
+  return fetch(input, init);
+};
+
+// maxRetries above the SDK default (2) is a second line of defense for genuinely
+// transient failures, now that the underlying connection bug is fixed at the source.
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, fetch: duplexSafeFetch, maxRetries: 4 });
 const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL ?? 'gpt-4o-mini-transcribe';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
