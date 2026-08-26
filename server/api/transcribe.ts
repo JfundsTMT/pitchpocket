@@ -20,9 +20,11 @@ const duplexSafeFetch: typeof fetch = (input, init) => {
   return fetch(input, init);
 };
 
-// maxRetries above the SDK default (2) is a second line of defense for genuinely
-// transient failures, now that the underlying connection bug is fixed at the source.
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, fetch: duplexSafeFetch, maxRetries: 4 });
+// maxRetries: 0 — the SDK's internal retry re-sends the same streamed request body,
+// which undici rejects on a second attempt ("Response body object should not be
+// disturbed or locked"). The app's own UI already retries with a fresh request on
+// failure, so SDK-level auto-retry here is both redundant and actively broken.
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, fetch: duplexSafeFetch, maxRetries: 0 });
 const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL ?? 'gpt-4o-mini-transcribe';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
