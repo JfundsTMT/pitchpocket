@@ -57,7 +57,9 @@ export function DebriefTestScreen() {
       });
       return;
     }
-    await setAudioModeAsync({ allowsRecording: true });
+    // iOS rejects allowsRecording without playsInSilentMode also enabled —
+    // .playAndRecord requires both together, whatever the documented default.
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
     await recorder.prepareToRecordAsync();
     recorder.record();
     setState({ phase: 'recording' });
@@ -65,6 +67,7 @@ export function DebriefTestScreen() {
 
   async function handleStopRecording() {
     await recorder.stop();
+    await setAudioModeAsync({ allowsRecording: false });
     const uri = recorder.uri;
     if (!uri) {
       setState({ phase: 'idle' });
