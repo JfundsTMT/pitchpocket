@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -13,9 +14,10 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { resolvePlayerContext } from '@/features/debrief/resolve-player-context';
+import { useTheme } from '@/hooks/use-theme';
+import { addDebriefRecord } from '@/lib/debrief-history';
 import { getEchoResponse, transcribeAudio, type EchoApiError } from '@/lib/echo-api';
 import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
-import { useTheme } from '@/hooks/use-theme';
 
 // Soft warning threshold shown in the UI. The real limit is enforced
 // server-side (see server/api/transcribe.ts MAX_AUDIO_BYTES) — recordings
@@ -34,7 +36,11 @@ type ScreenState =
   | { phase: 'echo_error'; transcript: string; error: EchoApiError }
   | { phase: 'done'; transcript: string; echoResponse: string };
 
-export function DebriefTestScreen() {
+type DebriefScreenProps = {
+  fixtureId?: string;
+};
+
+export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [state, setState] = useState<ScreenState>({ phase: 'loading_profile' });
   const recorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
@@ -46,6 +52,15 @@ export function DebriefTestScreen() {
       setState(loaded ? { phase: 'idle' } : { phase: 'no_profile' });
     });
   }, []);
+
+  // Save the moment a debrief completes, so nothing is lost if the player
+  // navigates away before reading — the "back to home" button is about
+  // giving them time to read Echo's response, not gating the save on it.
+  useEffect(() => {
+    if (state.phase !== 'done') return;
+    addDebriefRecord({ fixtureId, transcript: state.transcript, echoResponse: state.echoResponse });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.phase]);
 
   async function handleStartRecording() {
     const permission = await requestRecordingPermissionsAsync();
@@ -102,10 +117,7 @@ export function DebriefTestScreen() {
       <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <ThemedText type="title" style={styles.title}>
-            Debrief test
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
-            Dev-only screen to test the recording → transcription → Echo pipeline end-to-end.
+            Debrief with Echo
           </ThemedText>
 
           {renderBody(state, {
@@ -114,6 +126,7 @@ export function DebriefTestScreen() {
             onRetryTranscribe: () => runTranscription(state.phase === 'transcribe_error' ? state.fileUri : ''),
             onRetryEcho: () => runEchoResponse(state.phase === 'echo_error' ? state.transcript : ''),
             onReset: () => setState({ phase: 'idle' }),
+            onDone: () => router.replace('/'),
             elapsedSeconds: recorderState.durationMillis ? Math.floor(recorderState.durationMillis / 1000) : 0,
           })}
         </ScrollView>
@@ -128,6 +141,7 @@ type BodyHandlers = {
   onRetryTranscribe: () => void;
   onRetryEcho: () => void;
   onReset: () => void;
+  onDone: () => void;
   elapsedSeconds: number;
 };
 
@@ -138,9 +152,7 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
     case 'no_profile':
       return <ThemedText type="default">Complete onboarding first — no player profile found.</ThemedText>;
     case 'idle':
-      return (
-        <PrimaryButton label="Start recording" onPress={handlers.onStart} />
-      );
+      return <PrimaryButton label="Start recording" onPress={handlers.onStart} />;
     case 'recording':
       return (
         <>
@@ -188,7 +200,7 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
             <ThemedText type="default">{state.echoResponse}</ThemedText>
           </ThemedView>
           <TranscriptBlock transcript={state.transcript} />
-          <PrimaryButton label="Record another" onPress={handlers.onReset} />
+          <PrimaryButton label="Back to home" onPress={handlers.onDone} />
         </>
       );
     default:
@@ -253,9 +265,6 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.six,
   },
   title: {
-    marginBottom: Spacing.one,
-  },
-  subtitle: {
     marginBottom: Spacing.two,
   },
   status: {
