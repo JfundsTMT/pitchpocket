@@ -15,7 +15,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { resolvePlayerContext } from '@/features/debrief/resolve-player-context';
 import { useTheme } from '@/hooks/use-theme';
-import { addDebriefRecord } from '@/lib/debrief-history';
+import { addDebriefRecord, buildRecentDebriefContext, loadDebriefHistory, type PastDebrief } from '@/lib/debrief-history';
 import { getEchoResponse, transcribeAudio, type EchoApiError } from '@/lib/echo-api';
 import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 
@@ -42,14 +42,16 @@ type DebriefScreenProps = {
 
 export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
+  const [pastDebriefs, setPastDebriefs] = useState<PastDebrief[]>([]);
   const [state, setState] = useState<ScreenState>({ phase: 'loading_profile' });
   const recorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 100);
 
   useEffect(() => {
-    loadPlayerProfile().then((loaded) => {
-      setProfile(loaded);
-      setState(loaded ? { phase: 'idle' } : { phase: 'no_profile' });
+    Promise.all([loadPlayerProfile(), loadDebriefHistory()]).then(([loadedProfile, loadedHistory]) => {
+      setProfile(loadedProfile);
+      setPastDebriefs(buildRecentDebriefContext(loadedHistory));
+      setState(loadedProfile ? { phase: 'idle' } : { phase: 'no_profile' });
     });
   }, []);
 
@@ -104,7 +106,7 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   async function runEchoResponse(transcript: string) {
     if (!profile) return;
     setState({ phase: 'thinking', transcript });
-    const result = await getEchoResponse(transcript, resolvePlayerContext(profile));
+    const result = await getEchoResponse(transcript, resolvePlayerContext(profile), pastDebriefs);
     if (!result.ok) {
       setState({ phase: 'echo_error', transcript, error: result.error });
       return;

@@ -1,6 +1,7 @@
 import { File } from 'expo-file-system';
 
 import { getDeviceId } from '@/lib/device-id';
+import type { PastDebrief } from '@/lib/debrief-history';
 
 const BASE_URL = process.env.EXPO_PUBLIC_ECHO_API_BASE_URL ?? 'https://pitchpocket-server.vercel.app';
 
@@ -37,8 +38,9 @@ export async function transcribeAudio(fileUri: string): Promise<EchoApiResult<{ 
 export async function getEchoResponse(
   transcript: string,
   player: PlayerContext,
+  history: PastDebrief[],
 ): Promise<EchoApiResult<{ echoResponse: string }>> {
-  return postJson<{ echoResponse: string }>('/api/debrief-response', { transcript, player });
+  return postJson<{ echoResponse: string }>('/api/debrief-response', { transcript, player, history });
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<EchoApiResult<T>> {

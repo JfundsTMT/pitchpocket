@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Anthropic from '@anthropic-ai/sdk';
 
-import { buildEchoSystemPrompt, type PlayerContext } from '../lib/echo-prompt.js';
+import { buildEchoSystemPrompt, type PastDebrief, type PlayerContext } from '../lib/echo-prompt.js';
 
 const anthropic = new Anthropic();
 
@@ -25,6 +25,22 @@ function isPlayerContext(value: unknown): value is PlayerContext {
   return requiredKeys.every((key) => typeof (value as Record<string, unknown>)[key] === 'string');
 }
 
+function isPastDebrief(value: unknown): value is PastDebrief {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.date === 'string' && typeof record.transcript === 'string' && typeof record.echoResponse === 'string'
+  );
+}
+
+// Malformed or missing history degrades to no memory for this request rather
+// than failing the debrief outright — memory is a quality improvement, not a
+// dependency the whole feature should break on.
+function toPastDebriefArray(value: unknown): PastDebrief[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isPastDebrief);
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -45,7 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { transcript, player } = req.body ?? {};
+  const { transcript, player, history } = req.body ?? {};
   if (!transcript || typeof transcript !== 'string') {
     res.status(400).json({ error: 'missing_transcript' });
     return;
@@ -59,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const message = await anthropic.messages.create({
       model: CHAT_MODEL,
       max_tokens: 1024,
-      system: buildEchoSystemPrompt(player),
+      system: buildEchoSystemPrompt(player, toPastDebriefArray(history)),
       messages: [{ role: 'user', content: transcript }],
     });
 
