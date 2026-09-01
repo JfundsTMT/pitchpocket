@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { readJson, writeJson } from '@/lib/storage';
 
 const STORAGE_KEY = 'pitchpocket.debriefHistory.v1';
 
@@ -11,9 +11,7 @@ export type DebriefRecord = {
 };
 
 export async function loadDebriefHistory(): Promise<DebriefRecord[]> {
-  const raw = await AsyncStorage.getItem(STORAGE_KEY);
-  if (!raw) return [];
-  return JSON.parse(raw) as DebriefRecord[];
+  return readJson<DebriefRecord[]>(STORAGE_KEY, []);
 }
 
 export async function addDebriefRecord(input: {
@@ -29,13 +27,13 @@ export async function addDebriefRecord(input: {
     echoResponse: input.echoResponse,
     createdAt: new Date().toISOString(),
   };
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([...history, record]));
+  await writeJson(STORAGE_KEY, [...history, record]);
   return record;
 }
 
 export async function deleteDebriefRecord(id: string): Promise<void> {
   const history = await loadDebriefHistory();
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(history.filter((r) => r.id !== id)));
+  await writeJson(STORAGE_KEY, history.filter((r) => r.id !== id));
 }
 
 function generateId(): string {

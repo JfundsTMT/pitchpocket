@@ -36,7 +36,12 @@
           "imageWidth": 76
         }
       ],
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "PitchPocket uses your microphone to record voice debriefs with Echo after your matches."
+        }
+      ],
       "expo-font",
       "expo-web-browser",
       "@react-native-community/datetimepicker"

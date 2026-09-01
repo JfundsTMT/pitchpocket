@@ -88,7 +88,7 @@ export function OnboardingFlow() {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
           {state.step > 0 ? (
-            <Pressable onPress={handleBack} hitSlop={12}>
+            <Pressable onPress={handleBack} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back">
               <ThemedText type="default">‹ Back</ThemedText>
             </Pressable>
           ) : (
@@ -117,7 +117,10 @@ export function OnboardingFlow() {
           style={[
             styles.continueButton,
             { backgroundColor: theme.text, opacity: canContinue ? 1 : 0.3 },
-          ]}>
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={state.step === 0 ? "Let's go." : 'Continue'}
+          accessibilityState={{ disabled: !canContinue }}>
           <ThemedText type="smallBold" themeColor="background">
             {state.step === 0 ? "Let's go." : 'Continue'}
           </ThemedText>

@@ -4,6 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 
+import { ErrorBoundary } from '@/components/error-boundary';
 import { OnboardingGateProvider, useOnboardingGate } from '@/features/onboarding/onboarding-gate';
 
 SplashScreen.preventAutoHideAsync();
@@ -24,11 +25,13 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <OnboardingGateProvider>
-        <SplashGate />
-        <Stack screenOptions={{ headerShown: false }} />
-      </OnboardingGateProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <OnboardingGateProvider>
+          <SplashGate />
+          <Stack screenOptions={{ headerShown: false }} />
+        </OnboardingGateProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

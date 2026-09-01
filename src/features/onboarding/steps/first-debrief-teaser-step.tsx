@@ -20,12 +20,18 @@ export function FirstDebriefTeaserStep({ state, dispatch }: FirstDebriefTeaserSt
           Played recently?
         </ThemedText>
         <View style={styles.choices}>
-          <Pressable onPress={() => dispatch({ type: 'SET_HAS_RECENT_MATCH', hasRecentMatch: true })}>
+          <Pressable
+            onPress={() => dispatch({ type: 'SET_HAS_RECENT_MATCH', hasRecentMatch: true })}
+            accessibilityRole="button"
+            accessibilityLabel="Yeah, last few days">
             <ThemedView type="backgroundElement" style={styles.choiceCard}>
               <ThemedText type="smallBold">Yeah, last few days</ThemedText>
             </ThemedView>
           </Pressable>
-          <Pressable onPress={() => dispatch({ type: 'SET_HAS_RECENT_MATCH', hasRecentMatch: false })}>
+          <Pressable
+            onPress={() => dispatch({ type: 'SET_HAS_RECENT_MATCH', hasRecentMatch: false })}
+            accessibilityRole="button"
+            accessibilityLabel="Not for a while">
             <ThemedView type="backgroundElement" style={styles.choiceCard}>
               <ThemedText type="smallBold">Not for a while</ThemedText>
             </ThemedView>

@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { AgeBracketId, FootId, PlayerLevelId, PositionGroupId } from '@/features/onboarding/onboarding-options';
 import type { TraitId } from '@/features/onboarding/trait-options';
+import { readJson } from '@/lib/storage';
 
 const STORAGE_KEY = 'pitchpocket.playerProfile.v1';
 
@@ -22,9 +23,7 @@ export type PlayerProfile = {
 };
 
 export async function loadPlayerProfile(): Promise<PlayerProfile | null> {
-  const raw = await AsyncStorage.getItem(STORAGE_KEY);
-  if (!raw) return null;
-  return JSON.parse(raw) as PlayerProfile;
+  return readJson<PlayerProfile | null>(STORAGE_KEY, null);
 }
 
 export async function savePlayerProfile(profile: PlayerProfile): Promise<void> {

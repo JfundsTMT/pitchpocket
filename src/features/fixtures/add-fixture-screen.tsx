@@ -62,12 +62,17 @@ export function AddFixtureScreen() {
             placeholder="Who are you playing?"
             placeholderTextColor={theme.textSecondary}
             style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }]}
+            accessibilityLabel="Opponent"
           />
 
           <ThemedText type="smallBold" themeColor="textSecondary" style={styles.label}>
             DATE
           </ThemedText>
-          <Pressable onPress={handlePickDate}>
+          <Pressable
+            onPress={handlePickDate}
+            accessibilityRole="button"
+            accessibilityLabel={`Fixture date, ${formatDate(date)}`}
+            accessibilityHint="Opens a date picker">
             <ThemedView type="backgroundElement" style={styles.dateButton}>
               <ThemedText type="default">{formatDate(date)}</ThemedText>
             </ThemedView>
@@ -93,12 +98,16 @@ export function AddFixtureScreen() {
             placeholder="League, cup, friendly..."
             placeholderTextColor={theme.textSecondary}
             style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }]}
+            accessibilityLabel="Competition, optional"
           />
 
           <Pressable
             onPress={handleSave}
             disabled={!canSave}
-            style={[styles.saveButton, { backgroundColor: theme.text, opacity: canSave ? 1 : 0.3 }]}>
+            style={[styles.saveButton, { backgroundColor: theme.text, opacity: canSave ? 1 : 0.3 }]}
+            accessibilityRole="button"
+            accessibilityLabel="Save fixture"
+            accessibilityState={{ disabled: !canSave }}>
             <ThemedText type="smallBold" themeColor="background">
               Save fixture
             </ThemedText>

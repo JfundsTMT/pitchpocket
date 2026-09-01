@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { readJson, writeJson } from '@/lib/storage';
 
 const STORAGE_KEY = 'pitchpocket.fixtures.v1';
 
@@ -11,9 +11,7 @@ export type Fixture = {
 };
 
 export async function loadFixtures(): Promise<Fixture[]> {
-  const raw = await AsyncStorage.getItem(STORAGE_KEY);
-  if (!raw) return [];
-  return JSON.parse(raw) as Fixture[];
+  return readJson<Fixture[]>(STORAGE_KEY, []);
 }
 
 export async function addFixture(input: { opponent: string; date: string; competition?: string }): Promise<Fixture> {
@@ -25,13 +23,13 @@ export async function addFixture(input: { opponent: string; date: string; compet
     competition: input.competition,
     createdAt: new Date().toISOString(),
   };
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([...fixtures, fixture]));
+  await writeJson(STORAGE_KEY, [...fixtures, fixture]);
   return fixture;
 }
 
 export async function deleteFixture(id: string): Promise<void> {
   const fixtures = await loadFixtures();
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(fixtures.filter((f) => f.id !== id)));
+  await writeJson(STORAGE_KEY, fixtures.filter((f) => f.id !== id));
 }
 
 function generateId(): string {

@@ -27,7 +27,10 @@ export function ArchetypeStep({ state, dispatch }: ArchetypeStepProps) {
         return (
           <Pressable
             key={archetype.id}
-            onPress={() => dispatch({ type: 'SELECT_ARCHETYPE', archetypeId: archetype.id })}>
+            onPress={() => dispatch({ type: 'SELECT_ARCHETYPE', archetypeId: archetype.id })}
+            accessibilityRole="button"
+            accessibilityLabel={`${archetype.name}. ${archetype.description}`}
+            accessibilityState={{ selected: isPrimary || isSecondary }}>
             <ThemedView
               type={isPrimary || isSecondary ? 'backgroundSelected' : 'backgroundElement'}
               style={styles.card}>

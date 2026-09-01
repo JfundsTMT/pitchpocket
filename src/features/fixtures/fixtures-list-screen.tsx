@@ -1,7 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Link, router } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -40,7 +40,13 @@ export function FixturesListScreen() {
     ]);
   }
 
-  if (!loaded) return null;
+  if (!loaded) {
+    return (
+      <ThemedView style={[styles.container, styles.centered]}>
+        <ActivityIndicator />
+      </ThemedView>
+    );
+  }
 
   const debriefedFixtureIds = new Set(history.map((r) => r.fixtureId).filter(Boolean));
   const now = Date.now();
@@ -60,7 +66,7 @@ export function FixturesListScreen() {
           </ThemedText>
 
           <Link href="/add-fixture" asChild>
-            <Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Add a fixture">
               <PrimaryButtonInner label="Add a fixture" />
             </Pressable>
           </Link>
@@ -83,7 +89,10 @@ export function FixturesListScreen() {
                     {fixture.competition}
                   </ThemedText>
                 ) : null}
-                <Pressable onPress={() => confirmDelete(fixture)}>
+                <Pressable
+                  onPress={() => confirmDelete(fixture)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete fixture vs ${fixture.opponent}`}>
                   <ThemedText type="small" themeColor="textSecondary" style={styles.deleteLink}>
                     Delete
                   </ThemedText>
@@ -118,11 +127,16 @@ export function FixturesListScreen() {
                     </ThemedText>
                   ) : (
                     <Pressable
-                      onPress={() => router.push({ pathname: '/debrief', params: { fixtureId: fixture.id } })}>
+                      onPress={() => router.push({ pathname: '/debrief', params: { fixtureId: fixture.id } })}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Debrief with Echo about vs ${fixture.opponent}`}>
                       <PrimaryButtonInner label="Debrief with Echo" />
                     </Pressable>
                   )}
-                  <Pressable onPress={() => confirmDelete(fixture)}>
+                  <Pressable
+                    onPress={() => confirmDelete(fixture)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete fixture vs ${fixture.opponent}`}>
                     <ThemedText type="small" themeColor="textSecondary" style={styles.deleteLink}>
                       Delete
                     </ThemedText>
@@ -154,6 +168,7 @@ function formatFixtureDate(iso: string): string {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  centered: { alignItems: 'center', justifyContent: 'center' },
   safeArea: { flex: 1 },
   content: {
     padding: Spacing.four,

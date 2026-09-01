@@ -1,7 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CareerTheme } from '@/constants/career-theme';
@@ -62,13 +62,19 @@ export function MindMapScreen() {
     setSelectedId(null);
   }
 
-  if (!loaded) return null;
+  if (!loaded) {
+    return (
+      <View style={[styles.root, styles.loadingContainer]}>
+        <ActivityIndicator color={CareerTheme.accent} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()}>
+          <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back">
             <Text style={styles.backLink}>Back</Text>
           </Pressable>
           <Text style={styles.title}>Mind Map</Text>
@@ -93,6 +99,8 @@ export function MindMapScreen() {
                     <Pressable
                       key={node.record.id}
                       onPress={() => setSelectedId(node.record.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Debrief from ${formatShortDate(node.record.createdAt)}${opponent ? ` vs ${opponent}` : ''}`}
                       style={[
                         styles.node,
                         isLatest && styles.nodeLatest,
@@ -172,7 +180,12 @@ function DebriefDetailSheet({
 
   return (
     <Modal transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
+      <Pressable
+        style={styles.sheetBackdrop}
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel="Close"
+      />
       <View style={styles.sheet}>
         <Text style={styles.sheetDate}>
           {new Date(record.createdAt).toLocaleDateString(undefined, {
@@ -188,10 +201,14 @@ function DebriefDetailSheet({
           <Text style={[styles.sheetLabel, styles.sheetLabelSpaced]}>TRANSCRIPT</Text>
           <Text style={styles.sheetBody}>{record.transcript}</Text>
         </ScrollView>
-        <Pressable onPress={confirmDelete} style={styles.deleteButton}>
+        <Pressable
+          onPress={confirmDelete}
+          style={styles.deleteButton}
+          accessibilityRole="button"
+          accessibilityLabel="Delete this debrief">
           <Text style={styles.deleteButtonText}>Delete this debrief</Text>
         </Pressable>
-        <Pressable onPress={onClose} style={styles.closeButton}>
+        <Pressable onPress={onClose} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close">
           <Text style={styles.closeButtonText}>Close</Text>
         </Pressable>
       </View>
@@ -231,6 +248,10 @@ const styles = StyleSheet.create({
   },
   headerSpacer: {
     minWidth: 50,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyState: {
     flex: 1,

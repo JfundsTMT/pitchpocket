@@ -1,7 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { Link, Redirect, router } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CareerTheme } from '@/constants/career-theme';
@@ -42,7 +42,11 @@ export default function HomeScreen() {
   }
 
   if (!dataLoaded || !profile) {
-    return null;
+    return (
+      <View style={[styles.root, styles.centered]}>
+        <ActivityIndicator color={CareerTheme.accent} />
+      </View>
+    );
   }
 
   const identity = resolvePlayerContext(profile);
@@ -94,12 +98,14 @@ export default function HomeScreen() {
                     params: fixtureNeedingDebrief ? { fixtureId: fixtureNeedingDebrief.id } : {},
                   })
                 }
-                style={styles.primaryButton}>
+                style={styles.primaryButton}
+                accessibilityRole="button"
+                accessibilityLabel="Debrief with Echo">
                 <Text style={styles.primaryButtonText}>Debrief with Echo</Text>
               </Pressable>
               {!nextFixture ? (
                 <Link href="/add-fixture" asChild>
-                  <Pressable style={styles.secondaryButton}>
+                  <Pressable style={styles.secondaryButton} accessibilityRole="button" accessibilityLabel="Add a fixture">
                     <Text style={styles.secondaryButtonText}>Add a fixture</Text>
                   </Pressable>
                 </Link>
@@ -109,16 +115,22 @@ export default function HomeScreen() {
 
           <View style={styles.tileRow}>
             <Link href="/fixtures" asChild>
-              <Pressable style={styles.tile}>
+              <Pressable
+                style={styles.tile}
+                accessibilityRole="button"
+                accessibilityLabel={`${upcomingCount} upcoming fixtures — view all fixtures`}>
                 <Text style={styles.tileNumber}>{upcomingCount}</Text>
                 <Text style={styles.tileLabel}>UPCOMING FIXTURES</Text>
               </Pressable>
             </Link>
-            <View style={styles.tile}>
+            <View style={styles.tile} accessible accessibilityLabel={`${history.length} debriefs logged`}>
               <Text style={styles.tileNumber}>{history.length}</Text>
               <Text style={styles.tileLabel}>DEBRIEFS LOGGED</Text>
             </View>
-            <View style={[styles.tile, styles.tileDisabled]}>
+            <View
+              style={[styles.tile, styles.tileDisabled]}
+              accessible
+              accessibilityLabel="Training — coming soon">
               <Text style={styles.tileComingSoon}>SOON</Text>
               <Text style={styles.tileLabel}>TRAINING</Text>
             </View>
@@ -148,19 +160,23 @@ export default function HomeScreen() {
 
           <View style={styles.navLinkRow}>
             <Link href="/fixtures" asChild>
-              <Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="View all fixtures">
                 <Text style={styles.fixturesLink}>View all fixtures</Text>
               </Pressable>
             </Link>
             <Link href="/mind-map" asChild>
-              <Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="View mind map">
                 <Text style={styles.fixturesLink}>View mind map</Text>
               </Pressable>
             </Link>
           </View>
 
           {__DEV__ ? (
-            <Pressable onPress={resetOnboarding} style={styles.devResetButton}>
+            <Pressable
+              onPress={resetOnboarding}
+              style={styles.devResetButton}
+              accessibilityRole="button"
+              accessibilityLabel="Reset onboarding (dev)">
               <Text style={styles.devResetText}>Reset onboarding (dev)</Text>
             </Pressable>
           ) : null}
@@ -209,6 +225,10 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: CareerTheme.background,
+  },
+  centered: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   safeArea: {
     flex: 1,

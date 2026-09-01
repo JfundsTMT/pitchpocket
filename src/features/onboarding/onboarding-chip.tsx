@@ -12,7 +12,11 @@ type OnboardingChipProps = {
 
 export function OnboardingChip({ label, selected, onPress }: OnboardingChipProps) {
   return (
-    <Pressable onPress={onPress}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}>
       <ThemedView type={selected ? 'backgroundSelected' : 'backgroundElement'} style={styles.chip}>
         <ThemedText type="smallBold" themeColor={selected ? 'text' : 'textSecondary'}>
           {label}

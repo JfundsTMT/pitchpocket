@@ -7,7 +7,7 @@ import {
   useAudioRecorderState,
 } from 'expo-audio';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -150,7 +150,7 @@ type BodyHandlers = {
 function renderBody(state: ScreenState, handlers: BodyHandlers) {
   switch (state.phase) {
     case 'loading_profile':
-      return null;
+      return <ActivityIndicator />;
     case 'no_profile':
       return <ThemedText type="default">Complete onboarding first — no player profile found.</ThemedText>;
     case 'idle':
@@ -213,7 +213,11 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
 function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
   const theme = useTheme();
   return (
-    <Pressable onPress={onPress} style={[styles.primaryButton, { backgroundColor: theme.text }]}>
+    <Pressable
+      onPress={onPress}
+      style={[styles.primaryButton, { backgroundColor: theme.text }]}
+      accessibilityRole="button"
+      accessibilityLabel={label}>
       <ThemedText type="smallBold" themeColor="background">
         {label}
       </ThemedText>
@@ -227,7 +231,7 @@ function ErrorState({ message, onRetry, onReset }: { message: string; onRetry?: 
       <ThemedText type="default">{message}</ThemedText>
       <ThemedView style={styles.errorActions}>
         {onRetry ? <PrimaryButton label="Retry" onPress={onRetry} /> : null}
-        <Pressable onPress={onReset}>
+        <Pressable onPress={onReset} accessibilityRole="button" accessibilityLabel="Start over">
           <ThemedText type="link">Start over</ThemedText>
         </Pressable>
       </ThemedView>
