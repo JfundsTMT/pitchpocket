@@ -1,4 +1,6 @@
 import { readJson, writeJson } from '@/lib/storage';
+import { requestPush } from '@/lib/sync-signal';
+import { addTombstone } from '@/lib/sync-tombstones';
 
 const STORAGE_KEY = 'pitchpocket.fixtures.v1';
 
@@ -34,12 +36,20 @@ export async function addFixture(input: { opponent: string; date: string; compet
     createdAt: new Date().toISOString(),
   };
   await writeJson(STORAGE_KEY, [...fixtures, fixture]);
+  requestPush();
   return fixture;
 }
 
 export async function deleteFixture(id: string): Promise<void> {
   const fixtures = await loadFixtures();
   await writeJson(STORAGE_KEY, fixtures.filter((f) => f.id !== id));
+  await addTombstone('fixtures', id);
+  requestPush();
+}
+
+/** Sync-engine use only: overwrite local state without re-triggering a push. */
+export async function replaceAllFixtures(fixtures: Fixture[]): Promise<void> {
+  await writeJson(STORAGE_KEY, fixtures);
 }
 
 function generateId(): string {

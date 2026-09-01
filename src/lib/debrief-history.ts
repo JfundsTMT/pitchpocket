@@ -1,4 +1,6 @@
 import { readJson, writeJson } from '@/lib/storage';
+import { requestPush } from '@/lib/sync-signal';
+import { addTombstone } from '@/lib/sync-tombstones';
 
 const STORAGE_KEY = 'pitchpocket.debriefHistory.v1';
 
@@ -39,12 +41,20 @@ export async function addDebriefRecord(input: {
     createdAt: new Date().toISOString(),
   };
   await writeJson(STORAGE_KEY, [...history, record]);
+  requestPush();
   return record;
 }
 
 export async function deleteDebriefRecord(id: string): Promise<void> {
   const history = await loadDebriefHistory();
   await writeJson(STORAGE_KEY, history.filter((r) => r.id !== id));
+  await addTombstone('debriefs', id);
+  requestPush();
+}
+
+/** Sync-engine use only: overwrite local state without re-triggering a push. */
+export async function replaceAllDebriefs(history: DebriefRecord[]): Promise<void> {
+  await writeJson(STORAGE_KEY, history);
 }
 
 function generateId(): string {

@@ -7,8 +7,10 @@ import { useColorScheme } from 'react-native';
 
 import { ErrorBoundary } from '@/components/error-boundary';
 import { OnboardingGateProvider, useOnboardingGate } from '@/features/onboarding/onboarding-gate';
+import { initSync } from '@/lib/sync';
 
 SplashScreen.preventAutoHideAsync();
+initSync();
 
 function SplashGate() {
   const { status } = useOnboardingGate();

@@ -12,6 +12,7 @@ import { AGE_BRACKETS, FEET } from '@/features/onboarding/onboarding-options';
 import { loadDebriefHistory, type DebriefRecord } from '@/lib/debrief-history';
 import { loadFixtures, type Fixture } from '@/lib/fixtures';
 import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
+import { syncNow } from '@/lib/sync';
 
 // Local palette for the broadcast-hub look. The anatomy follows the classic
 // console career-hub grammar (angled club banner, tab strip, advance
@@ -44,14 +45,26 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       if (status !== 'complete') return;
-      Promise.all([loadPlayerProfile(), loadFixtures(), loadDebriefHistory()]).then(
-        ([loadedProfile, loadedFixtures, loadedHistory]) => {
-          setProfile(loadedProfile);
-          setFixtures(loadedFixtures);
-          setHistory(loadedHistory);
-          setDataLoaded(true);
-        },
-      );
+      let cancelled = false;
+      const loadAll = () =>
+        Promise.all([loadPlayerProfile(), loadFixtures(), loadDebriefHistory()]).then(
+          ([loadedProfile, loadedFixtures, loadedHistory]) => {
+            if (cancelled) return;
+            setProfile(loadedProfile);
+            setFixtures(loadedFixtures);
+            setHistory(loadedHistory);
+            setDataLoaded(true);
+          },
+        );
+      loadAll();
+      // Background sync after the local render; reload only if it pulled
+      // anything new — the network is never on the critical path.
+      syncNow().then(({ changed }) => {
+        if (changed && !cancelled) loadAll();
+      });
+      return () => {
+        cancelled = true;
+      };
     }, [status]),
   );
 
@@ -275,6 +288,14 @@ export default function HomeScreen() {
                   <Text style={styles.hintKeyTextDark}>M</Text>
                 </View>
                 <Text style={styles.hintLabel}>Mind Map</Text>
+              </Pressable>
+            </Link>
+            <Link href="/account" asChild>
+              <Pressable style={styles.hint} accessibilityRole="button" accessibilityLabel="Account and backup">
+                <View style={[styles.hintKey, { backgroundColor: Hub.badgeRed }]}>
+                  <Text style={styles.hintKeyTextLight}>A</Text>
+                </View>
+                <Text style={styles.hintLabel}>Account</Text>
               </Pressable>
             </Link>
           </View>
@@ -725,8 +746,9 @@ const styles = StyleSheet.create({
   },
   hintRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: Spacing.four,
+    gap: Spacing.three,
     marginTop: Spacing.one,
   },
   hint: {
@@ -743,6 +765,11 @@ const styles = StyleSheet.create({
   },
   hintKeyTextDark: {
     color: Hub.cardInk,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  hintKeyTextLight: {
+    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '900',
   },

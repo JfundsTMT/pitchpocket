@@ -20,6 +20,15 @@ Server env vars (set in Vercel, not committed): `OPENAI_API_KEY`, `ANTHROPIC_API
 
 Client env: `EXPO_PUBLIC_ECHO_API_BASE_URL` (defaults to the production Vercel URL).
 
+## Cloud backup (Supabase)
+
+The career (profile, fixtures, debriefs) is local-first in AsyncStorage; Supabase adds backup and cross-device recovery on top. The app signs players in anonymously on first sync, and they can optionally attach an email later (6-digit code) to make the career recoverable on a new phone — accounts never gate the core loop.
+
+- Schema + Row Level Security policies: `supabase/schema.sql` (run once in the Supabase SQL Editor). RLS scopes every row to its owner, which is what makes talking to Supabase directly from the client with the anon key safe.
+- Anonymous sign-ins must be enabled: Dashboard → Authentication → Sign In / Up → Anonymous.
+- Client env (copy `.env.example` to `.env`): `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`. Without them, sync silently disables and the app runs local-only.
+- Sync design (`src/lib/sync.ts`): records are immutable once created, so a sync round is push-all → soft-delete tombstoned ids → pull-live → union by id. Deletes use local tombstones so an offline delete can't be resurrected by a later pull.
+
 ## Checks
 
 ```bash
