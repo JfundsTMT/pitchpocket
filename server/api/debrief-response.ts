@@ -35,10 +35,23 @@ function isPastDebrief(value: unknown): value is PastDebrief {
 
 // Malformed or missing history degrades to no memory for this request rather
 // than failing the debrief outright — memory is a quality improvement, not a
-// dependency the whole feature should break on.
+// dependency the whole feature should break on. The cap and truncation are
+// enforced here too, not just client-side: the device-id header is soft
+// abuse-prevention, not auth, so the prompt budget can't be trusted to the
+// caller.
+const HISTORY_LIMIT = 5;
+const HISTORY_FIELD_CHAR_LIMIT = 600;
+
 function toPastDebriefArray(value: unknown): PastDebrief[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(isPastDebrief);
+  return value
+    .filter(isPastDebrief)
+    .slice(-HISTORY_LIMIT)
+    .map((d) => ({
+      date: d.date.slice(0, 64),
+      transcript: d.transcript.slice(0, HISTORY_FIELD_CHAR_LIMIT),
+      echoResponse: d.echoResponse.slice(0, HISTORY_FIELD_CHAR_LIMIT),
+    }));
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

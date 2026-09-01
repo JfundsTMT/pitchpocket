@@ -11,7 +11,17 @@ export type Fixture = {
 };
 
 export async function loadFixtures(): Promise<Fixture[]> {
-  return readJson<Fixture[]>(STORAGE_KEY, []);
+  const parsed = await readJson<unknown>(STORAGE_KEY, []);
+  if (!Array.isArray(parsed)) return [];
+  // Drop malformed entries rather than letting one bad record break every
+  // screen that maps over the list.
+  return parsed.filter(
+    (f): f is Fixture =>
+      !!f &&
+      typeof (f as Fixture).id === 'string' &&
+      typeof (f as Fixture).opponent === 'string' &&
+      typeof (f as Fixture).date === 'string',
+  );
 }
 
 export async function addFixture(input: { opponent: string; date: string; competition?: string }): Promise<Fixture> {

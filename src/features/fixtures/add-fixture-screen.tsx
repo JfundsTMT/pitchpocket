@@ -49,6 +49,16 @@ export function AddFixtureScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={12}
+            style={styles.backLink}
+            accessibilityRole="button"
+            accessibilityLabel="Back">
+            <ThemedText type="small" themeColor="textSecondary">
+              ‹ Back
+            </ThemedText>
+          </Pressable>
           <ThemedText type="title" style={styles.title}>
             Add a fixture
           </ThemedText>
@@ -132,6 +142,9 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: Spacing.two,
+  },
+  backLink: {
+    alignSelf: 'flex-start',
   },
   label: {
     letterSpacing: 0.5,

@@ -208,7 +208,7 @@ export default function HomeScreen() {
                   <View key={record.id} style={[styles.logRow, index === 0 && styles.logRowLatest]}>
                     <Text style={styles.logRank}>{sortedHistory.length - index}</Text>
                     <Text style={styles.logName} numberOfLines={1}>
-                      {opponentFor(record, fixtures) ?? 'Debrief'}
+                      {opponentFor(record, fixtures) ?? 'Check-in'}
                     </Text>
                     <Text style={styles.logDate}>{formatShortDate(record.createdAt)}</Text>
                   </View>

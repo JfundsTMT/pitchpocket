@@ -11,7 +11,18 @@ export type DebriefRecord = {
 };
 
 export async function loadDebriefHistory(): Promise<DebriefRecord[]> {
-  return readJson<DebriefRecord[]>(STORAGE_KEY, []);
+  const parsed = await readJson<unknown>(STORAGE_KEY, []);
+  if (!Array.isArray(parsed)) return [];
+  // Drop malformed entries rather than letting one bad record break every
+  // screen that maps over the list.
+  return parsed.filter(
+    (r): r is DebriefRecord =>
+      !!r &&
+      typeof (r as DebriefRecord).id === 'string' &&
+      typeof (r as DebriefRecord).transcript === 'string' &&
+      typeof (r as DebriefRecord).echoResponse === 'string' &&
+      typeof (r as DebriefRecord).createdAt === 'string',
+  );
 }
 
 export async function addDebriefRecord(input: {

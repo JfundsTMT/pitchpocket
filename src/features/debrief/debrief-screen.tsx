@@ -6,7 +6,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -17,6 +17,7 @@ import { resolvePlayerContext } from '@/features/debrief/resolve-player-context'
 import { useTheme } from '@/hooks/use-theme';
 import { addDebriefRecord, buildRecentDebriefContext, loadDebriefHistory, type PastDebrief } from '@/lib/debrief-history';
 import { getEchoResponse, transcribeAudio, type EchoApiError } from '@/lib/echo-api';
+import { loadFixtures, type Fixture } from '@/lib/fixtures';
 import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 
 // Soft warning threshold shown in the UI. The real limit is enforced
@@ -24,6 +25,9 @@ import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 // past this point risk exceeding Vercel's 4.5MB request body cap once
 // base64-encoded, which surfaces as a clear "audio_too_large" retry state.
 const RECORDING_WARNING_SECONDS = 5 * 60;
+// Hard stop before the upload is guaranteed to be rejected — losing a long
+// debrief to a 413 after the fact is worse than cutting it off with warning.
+const RECORDING_HARD_STOP_SECONDS = 10 * 60;
 
 type ScreenState =
   | { phase: 'loading_profile' }
@@ -43,17 +47,22 @@ type DebriefScreenProps = {
 export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [pastDebriefs, setPastDebriefs] = useState<PastDebrief[]>([]);
+  const [fixture, setFixture] = useState<Fixture | null>(null);
   const [state, setState] = useState<ScreenState>({ phase: 'loading_profile' });
   const recorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 100);
+  const autoStopFired = useRef(false);
 
   useEffect(() => {
-    Promise.all([loadPlayerProfile(), loadDebriefHistory()]).then(([loadedProfile, loadedHistory]) => {
-      setProfile(loadedProfile);
-      setPastDebriefs(buildRecentDebriefContext(loadedHistory));
-      setState(loadedProfile ? { phase: 'idle' } : { phase: 'no_profile' });
-    });
-  }, []);
+    Promise.all([loadPlayerProfile(), loadDebriefHistory(), loadFixtures()]).then(
+      ([loadedProfile, loadedHistory, loadedFixtures]) => {
+        setProfile(loadedProfile);
+        setPastDebriefs(buildRecentDebriefContext(loadedHistory));
+        setFixture(fixtureId ? (loadedFixtures.find((f) => f.id === fixtureId) ?? null) : null);
+        setState(loadedProfile ? { phase: 'idle' } : { phase: 'no_profile' });
+      },
+    );
+  }, [fixtureId]);
 
   // Save the moment a debrief completes, so nothing is lost if the player
   // navigates away before reading — the "back to home" button is about
@@ -63,6 +72,18 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
     addDebriefRecord({ fixtureId, transcript: state.transcript, echoResponse: state.echoResponse });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.phase]);
+
+  // Hard auto-stop: past this point the upload would be rejected anyway, so
+  // send what we have rather than letting the player lose the whole debrief.
+  // The ref guards against re-entry while the async stop is in flight.
+  useEffect(() => {
+    const elapsed = recorderState.durationMillis ? recorderState.durationMillis / 1000 : 0;
+    if (state.phase === 'recording' && elapsed >= RECORDING_HARD_STOP_SECONDS && !autoStopFired.current) {
+      autoStopFired.current = true;
+      handleStopRecording();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.phase, recorderState.durationMillis]);
 
   async function handleStartRecording() {
     const permission = await requestRecordingPermissionsAsync();
@@ -78,6 +99,7 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
     // .playAndRecord requires both together, whatever the documented default.
     await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
     await recorder.prepareToRecordAsync();
+    autoStopFired.current = false;
     recorder.record();
     setState({ phase: 'recording' });
   }
@@ -93,11 +115,30 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
     await runTranscription(uri);
   }
 
+  async function handleDiscardRecording() {
+    await recorder.stop();
+    await setAudioModeAsync({ allowsRecording: false });
+    setState({ phase: 'idle' });
+  }
+
   async function runTranscription(fileUri: string) {
     setState({ phase: 'transcribing', fileUri });
     const result = await transcribeAudio(fileUri);
     if (!result.ok) {
       setState({ phase: 'transcribe_error', fileUri, error: result.error });
+      return;
+    }
+    // A silent or unintelligible recording produces a near-empty transcript —
+    // catch it here instead of burning an Echo call on nothing.
+    if (result.data.transcript.trim().length < 5) {
+      setState({
+        phase: 'transcribe_error',
+        fileUri,
+        error: {
+          kind: 'server_error',
+          message: "Couldn't hear anything in that recording — try again a bit closer to the mic.",
+        },
+      });
       return;
     }
     await runEchoResponse(result.data.transcript);
@@ -118,13 +159,31 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {state.phase !== 'recording' && state.phase !== 'transcribing' && state.phase !== 'thinking' ? (
+            <Pressable
+              onPress={() => router.back()}
+              hitSlop={12}
+              style={styles.backLink}
+              accessibilityRole="button"
+              accessibilityLabel="Back">
+              <ThemedText type="small" themeColor="textSecondary">
+                ‹ Back
+              </ThemedText>
+            </Pressable>
+          ) : null}
           <ThemedText type="title" style={styles.title}>
             Debrief with Echo
           </ThemedText>
+          {fixture ? (
+            <ThemedText type="default" themeColor="textSecondary" style={styles.fixtureContext}>
+              vs {fixture.opponent} — {formatFixtureDate(fixture.date)}
+            </ThemedText>
+          ) : null}
 
           {renderBody(state, {
             onStart: handleStartRecording,
             onStop: handleStopRecording,
+            onDiscard: handleDiscardRecording,
             onRetryTranscribe: () => runTranscription(state.phase === 'transcribe_error' ? state.fileUri : ''),
             onRetryEcho: () => runEchoResponse(state.phase === 'echo_error' ? state.transcript : ''),
             onReset: () => setState({ phase: 'idle' }),
@@ -140,6 +199,7 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
 type BodyHandlers = {
   onStart: () => void;
   onStop: () => void;
+  onDiscard: () => void;
   onRetryTranscribe: () => void;
   onRetryEcho: () => void;
   onReset: () => void;
@@ -163,10 +223,19 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
           </ThemedText>
           {handlers.elapsedSeconds >= RECORDING_WARNING_SECONDS ? (
             <ThemedText type="small" themeColor="textSecondary" style={styles.status}>
-              Getting long — wrap it up soon or the upload may be rejected.
+              Getting long — auto-sends at 10:00 so nothing gets lost.
             </ThemedText>
           ) : null}
           <PrimaryButton label="Stop & send" onPress={handlers.onStop} />
+          <Pressable
+            onPress={handlers.onDiscard}
+            style={styles.discardLink}
+            accessibilityRole="button"
+            accessibilityLabel="Discard recording">
+            <ThemedText type="small" themeColor="textSecondary">
+              Discard
+            </ThemedText>
+          </Pressable>
         </>
       );
     case 'transcribing':
@@ -258,6 +327,10 @@ function formatDuration(totalSeconds: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
+function formatFixtureDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -273,8 +346,19 @@ const styles = StyleSheet.create({
   title: {
     marginBottom: Spacing.two,
   },
+  backLink: {
+    alignSelf: 'flex-start',
+  },
+  fixtureContext: {
+    marginTop: -Spacing.two,
+    marginBottom: Spacing.one,
+  },
   status: {
     marginBottom: Spacing.one,
+  },
+  discardLink: {
+    alignItems: 'center',
+    padding: Spacing.two,
   },
   primaryButton: {
     paddingVertical: Spacing.three,

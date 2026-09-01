@@ -61,6 +61,16 @@ export function FixturesListScreen() {
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={12}
+            style={styles.backLink}
+            accessibilityRole="button"
+            accessibilityLabel="Back">
+            <ThemedText type="small" themeColor="textSecondary">
+              ‹ Back
+            </ThemedText>
+          </Pressable>
           <ThemedText type="title" style={styles.title}>
             Fixtures
           </ThemedText>
@@ -177,6 +187,9 @@ const styles = StyleSheet.create({
   },
   title: {
     marginBottom: Spacing.one,
+  },
+  backLink: {
+    alignSelf: 'flex-start',
   },
   sectionLabel: {
     letterSpacing: 0.5,

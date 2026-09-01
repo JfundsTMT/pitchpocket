@@ -15,12 +15,15 @@ export const Colors = {
     backgroundSelected: '#E0E1E6',
     textSecondary: '#60646C',
   },
+  // Harmonized with CareerTheme (career-theme.ts) — the app forces dark mode
+  // (app.json userInterfaceStyle) so every Themed* screen sits on the same
+  // broadcast-hub field as the career home screen.
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: '#F5F7FA',
+    background: '#0A0F0C',
+    backgroundElement: '#151B16',
+    backgroundSelected: '#20291F',
+    textSecondary: '#8A93A6',
   },
 } as const;
 
