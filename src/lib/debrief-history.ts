@@ -57,6 +57,11 @@ export async function replaceAllDebriefs(history: DebriefRecord[]): Promise<void
   await writeJson(STORAGE_KEY, history);
 }
 
+/** Fresh-save / account-switch use: wipe locally without tombstoning (the cloud copy survives). */
+export async function clearAllDebriefs(): Promise<void> {
+  await writeJson(STORAGE_KEY, []);
+}
+
 function generateId(): string {
   return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
 }

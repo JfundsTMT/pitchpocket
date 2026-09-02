@@ -1,6 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
+import { clearAllDebriefs } from '@/lib/debrief-history';
+import { clearAllFixtures } from '@/lib/fixtures';
 import { clearPlayerProfile, loadPlayerProfile, savePlayerProfile, type PlayerProfile } from '@/lib/player-profile';
+import { supabase } from '@/lib/supabase';
+import { clearAllTombstones } from '@/lib/sync-tombstones';
 
 type GateStatus = 'loading' | 'needed' | 'complete';
 
@@ -34,8 +38,15 @@ export function OnboardingGateProvider({ children }: { children: ReactNode }) {
         await savePlayerProfile(profile);
         setStatus('complete');
       },
+      // A true fresh save: wipes the whole local career and signs out of the
+      // backend, so the next onboarding starts a brand-new (anonymous)
+      // career. The old career stays safe in the cloud under its account and
+      // comes back via restore.
       resetOnboarding: async () => {
-        await clearPlayerProfile();
+        await Promise.all([clearPlayerProfile(), clearAllFixtures(), clearAllDebriefs(), clearAllTombstones()]);
+        if (supabase) {
+          await supabase.auth.signOut().catch(() => undefined);
+        }
         setStatus('needed');
       },
     }),

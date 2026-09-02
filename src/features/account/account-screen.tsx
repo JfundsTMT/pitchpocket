@@ -6,7 +6,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CareerTheme } from '@/constants/career-theme';
 import { Spacing } from '@/constants/theme';
 import { useOnboardingGate } from '@/features/onboarding/onboarding-gate';
+import { clearAllDebriefs } from '@/lib/debrief-history';
+import { clearAllFixtures } from '@/lib/fixtures';
 import { isSyncConfigured, supabase } from '@/lib/supabase';
+import { clearAllTombstones } from '@/lib/sync-tombstones';
 import { pullCareerAfterRestore, syncNow } from '@/lib/sync';
 
 type Mode =
@@ -45,6 +48,23 @@ export function AccountScreen() {
         setSessionLoading(false);
       });
   }, []);
+
+  // Same-phone restore: the player reset/lost their local career but the
+  // Supabase session survived (it lives outside the profile storage), so no
+  // email round-trip is needed — just pull and rehydrate.
+  async function restoreWithExistingSession() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    const profile = await pullCareerAfterRestore();
+    setBusy(false);
+    if (profile) {
+      await completeOnboarding(profile);
+      router.replace('/');
+      return;
+    }
+    setError('No saved career found on this account yet.');
+  }
 
   async function beginAttach() {
     if (!supabase || busy) return;
@@ -115,6 +135,10 @@ export function AccountScreen() {
       setError(verifyError.message);
       return;
     }
+    // Signing into an account replaces whatever career is on this phone —
+    // otherwise the local leftovers would union-push into the restored
+    // account on the next sync.
+    await Promise.all([clearAllFixtures(), clearAllDebriefs(), clearAllTombstones()]);
     const profile = await pullCareerAfterRestore();
     setBusy(false);
     if (profile) {
@@ -165,6 +189,17 @@ export function AccountScreen() {
 
               {notice ? <Text style={styles.notice}>{notice}</Text> : null}
               {error ? <Text style={styles.error}>{error}</Text> : null}
+
+              {mode === 'status' && gateStatus !== 'complete' && hasSession ? (
+                <Pressable
+                  onPress={restoreWithExistingSession}
+                  disabled={busy}
+                  style={[styles.primaryButton, { opacity: busy ? 0.4 : 1 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Restore this career">
+                  <Text style={styles.primaryButtonText}>{busy ? 'RESTORING…' : 'RESTORE THIS CAREER'}</Text>
+                </Pressable>
+              ) : null}
 
               {mode === 'status' && !userEmail && hasSession ? (
                 <Pressable
@@ -242,7 +277,7 @@ export function AccountScreen() {
                 </Pressable>
               ) : null}
 
-              {mode === 'status' && !userEmail ? (
+              {mode === 'status' ? (
                 <Pressable
                   onPress={() => {
                     setError(null);
@@ -251,8 +286,12 @@ export function AccountScreen() {
                   }}
                   style={styles.ghostLink}
                   accessibilityRole="button"
-                  accessibilityLabel="Restore an existing career">
-                  <Text style={styles.ghostLinkText}>Already have a career on another phone? Restore it</Text>
+                  accessibilityLabel="Restore a career by email">
+                  <Text style={styles.ghostLinkText}>
+                    {userEmail
+                      ? 'Sign into a different account'
+                      : 'Already have a career on another phone? Restore it'}
+                  </Text>
                 </Pressable>
               ) : null}
             </>

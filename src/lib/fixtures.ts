@@ -52,6 +52,11 @@ export async function replaceAllFixtures(fixtures: Fixture[]): Promise<void> {
   await writeJson(STORAGE_KEY, fixtures);
 }
 
+/** Fresh-save / account-switch use: wipe locally without tombstoning (the cloud copy survives). */
+export async function clearAllFixtures(): Promise<void> {
+  await writeJson(STORAGE_KEY, []);
+}
+
 function generateId(): string {
   return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
 }

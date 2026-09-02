@@ -30,6 +30,10 @@ export async function addTombstone(kind: keyof Tombstones, id: string): Promise<
   }
 }
 
+export async function clearAllTombstones(): Promise<void> {
+  await writeJson(STORAGE_KEY, EMPTY);
+}
+
 export async function clearTombstones(confirmed: Tombstones): Promise<void> {
   const current = await loadTombstones();
   await writeJson(STORAGE_KEY, {

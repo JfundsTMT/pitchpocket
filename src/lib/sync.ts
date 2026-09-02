@@ -159,10 +159,10 @@ export async function pullCareerAfterRestore(): Promise<PlayerProfile | null> {
 
   const remoteProfile = (profileRow?.profile ?? null) as PlayerProfile | null;
   if (remoteProfile && remoteProfile.onboardingComplete) {
-    const localProfile = await loadPlayerProfile();
-    if (!localProfile) {
-      await restorePlayerProfile(remoteProfile);
-    }
+    // An explicit restore always takes the cloud copy — the caller has
+    // already decided this account's career is the one this phone should
+    // hold.
+    await restorePlayerProfile(remoteProfile);
     return remoteProfile;
   }
   return null;
