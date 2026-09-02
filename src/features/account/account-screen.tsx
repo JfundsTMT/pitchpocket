@@ -76,7 +76,7 @@ export function AccountScreen() {
       setError(updateError.message);
       return;
     }
-    setNotice(`We sent a 6-digit code to ${email.trim()}.`);
+    setNotice(`We sent a code to ${email.trim()}.`);
     setMode('attach_code');
   }
 
@@ -117,7 +117,7 @@ export function AccountScreen() {
       );
       return;
     }
-    setNotice(`We sent a 6-digit code to ${email.trim()}.`);
+    setNotice(`We sent a code to ${email.trim()}.`);
     setMode('restore_code');
   }
 
@@ -244,10 +244,10 @@ export function AccountScreen() {
                   <TextInput
                     value={code}
                     onChangeText={setCode}
-                    placeholder="6-digit code"
+                    placeholder="Code from the email"
                     placeholderTextColor={CareerTheme.textMuted}
                     keyboardType="number-pad"
-                    maxLength={6}
+                    maxLength={10}
                     style={styles.input}
                     accessibilityLabel="Verification code"
                   />
