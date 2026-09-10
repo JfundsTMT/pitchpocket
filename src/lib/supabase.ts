@@ -2,14 +2,23 @@ import 'react-native-url-polyfill/auto';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 // Sync is strictly additive: without keys the app runs exactly as before,
 // local-only. Every caller must null-check `supabase`.
-export const isSyncConfigured = Boolean(url && anonKey);
+//
+// Also inert during Expo's Node-side static pre-render for the web
+// platform (`expo export` / `expo start --web`'s SSR pass): AsyncStorage's
+// web code path assumes `window` exists, which is true in an actual
+// browser but false in that Node context — accessing it there throws and
+// takes the whole render down. Real end users never hit this; it only
+// exists to keep that one build step from crashing.
+const isNodeWebPrerender = Platform.OS === 'web' && typeof window === 'undefined';
+
+export const isSyncConfigured = Boolean(url && anonKey) && !isNodeWebPrerender;
 
 export const supabase = isSyncConfigured
   ? createClient(url!, anonKey!, {

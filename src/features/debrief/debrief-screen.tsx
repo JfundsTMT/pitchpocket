@@ -15,7 +15,14 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { resolvePlayerContext } from '@/features/debrief/resolve-player-context';
 import { useTheme } from '@/hooks/use-theme';
-import { addDebriefRecord, buildRecentDebriefContext, loadDebriefHistory, type PastDebrief } from '@/lib/debrief-history';
+import {
+  appendDebriefTurn,
+  buildRecentDebriefContext,
+  createDebriefRecord,
+  loadDebriefHistory,
+  type DebriefTurn,
+  type PastDebrief,
+} from '@/lib/debrief-history';
 import { getEchoResponse, transcribeAudio, type EchoApiError } from '@/lib/echo-api';
 import { loadFixtures, type Fixture } from '@/lib/fixtures';
 import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
@@ -36,9 +43,9 @@ type ScreenState =
   | { phase: 'recording' }
   | { phase: 'transcribing'; fileUri: string }
   | { phase: 'transcribe_error'; fileUri: string; error: EchoApiError }
-  | { phase: 'thinking'; transcript: string }
-  | { phase: 'echo_error'; transcript: string; error: EchoApiError }
-  | { phase: 'done'; transcript: string; echoResponse: string };
+  | { phase: 'thinking'; pendingTranscript: string }
+  | { phase: 'echo_error'; pendingTranscript: string; error: EchoApiError }
+  | { phase: 'done' };
 
 type DebriefScreenProps = {
   fixtureId?: string;
@@ -48,10 +55,15 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [pastDebriefs, setPastDebriefs] = useState<PastDebrief[]>([]);
   const [fixture, setFixture] = useState<Fixture | null>(null);
+  const [turns, setTurns] = useState<DebriefTurn[]>([]);
   const [state, setState] = useState<ScreenState>({ phase: 'loading_profile' });
   const recorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 100);
   const autoStopFired = useRef(false);
+  // The persisted record for this conversation — null until the first
+  // exchange completes, then every reply appends to the same record instead
+  // of creating a new one.
+  const recordId = useRef<string | null>(null);
 
   useEffect(() => {
     Promise.all([loadPlayerProfile(), loadDebriefHistory(), loadFixtures()]).then(
@@ -64,14 +76,21 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
     );
   }, [fixtureId]);
 
-  // Save the moment a debrief completes, so nothing is lost if the player
-  // navigates away before reading — the "back to home" button is about
-  // giving them time to read Echo's response, not gating the save on it.
+  // Save the moment each exchange completes, so nothing is lost if the
+  // player navigates away mid-conversation — the first exchange creates the
+  // record, every reply after that appends a turn to it.
   useEffect(() => {
-    if (state.phase !== 'done') return;
-    addDebriefRecord({ fixtureId, transcript: state.transcript, echoResponse: state.echoResponse });
+    if (state.phase !== 'done' || turns.length === 0) return;
+    const latestTurn = turns[turns.length - 1];
+    if (!recordId.current) {
+      createDebriefRecord({ fixtureId, ...latestTurn }).then((record) => {
+        recordId.current = record.id;
+      });
+    } else {
+      appendDebriefTurn(recordId.current, latestTurn);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.phase]);
+  }, [turns.length, state.phase]);
 
   // Hard auto-stop: past this point the upload would be rejected anyway, so
   // send what we have rather than letting the player lose the whole debrief.
@@ -118,7 +137,7 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   async function handleDiscardRecording() {
     await recorder.stop();
     await setAudioModeAsync({ allowsRecording: false });
-    setState({ phase: 'idle' });
+    setState(turns.length > 0 ? { phase: 'done' } : { phase: 'idle' });
   }
 
   async function runTranscription(fileUri: string) {
@@ -144,15 +163,16 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
     await runEchoResponse(result.data.transcript);
   }
 
-  async function runEchoResponse(transcript: string) {
+  async function runEchoResponse(pendingTranscript: string) {
     if (!profile) return;
-    setState({ phase: 'thinking', transcript });
-    const result = await getEchoResponse(transcript, resolvePlayerContext(profile), pastDebriefs);
+    setState({ phase: 'thinking', pendingTranscript });
+    const result = await getEchoResponse(turns, pendingTranscript, resolvePlayerContext(profile), pastDebriefs);
     if (!result.ok) {
-      setState({ phase: 'echo_error', transcript, error: result.error });
+      setState({ phase: 'echo_error', pendingTranscript, error: result.error });
       return;
     }
-    setState({ phase: 'done', transcript, echoResponse: result.data.echoResponse });
+    setTurns((current) => [...current, { transcript: pendingTranscript, echoResponse: result.data.echoResponse }]);
+    setState({ phase: 'done' });
   }
 
   return (
@@ -180,14 +200,17 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
             </ThemedText>
           ) : null}
 
+          {turns.length > 0 ? <ConversationThread turns={turns} /> : null}
+
           {renderBody(state, {
             onStart: handleStartRecording,
             onStop: handleStopRecording,
             onDiscard: handleDiscardRecording,
             onRetryTranscribe: () => runTranscription(state.phase === 'transcribe_error' ? state.fileUri : ''),
-            onRetryEcho: () => runEchoResponse(state.phase === 'echo_error' ? state.transcript : ''),
-            onReset: () => setState({ phase: 'idle' }),
+            onRetryEcho: () => runEchoResponse(state.phase === 'echo_error' ? state.pendingTranscript : ''),
+            onReset: () => setState(turns.length > 0 ? { phase: 'done' } : { phase: 'idle' }),
             onDone: () => router.replace('/'),
+            hasTurns: turns.length > 0,
             elapsedSeconds: recorderState.durationMillis ? Math.floor(recorderState.durationMillis / 1000) : 0,
           })}
         </ScrollView>
@@ -204,6 +227,7 @@ type BodyHandlers = {
   onRetryEcho: () => void;
   onReset: () => void;
   onDone: () => void;
+  hasTurns: boolean;
   elapsedSeconds: number;
 };
 
@@ -239,7 +263,7 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
         </>
       );
     case 'transcribing':
-      return <ThemedText type="default">Transcribing your debrief…</ThemedText>;
+      return <ThemedText type="default">Transcribing…</ThemedText>;
     case 'transcribe_error':
       return (
         <ErrorState
@@ -250,33 +274,49 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
       );
     case 'thinking':
       return (
-        <>
-          <ThemedText type="default" style={styles.status}>
-            Echo is thinking…
-          </ThemedText>
-          <TranscriptBlock transcript={state.transcript} />
-        </>
+        <ThemedText type="default" style={styles.status}>
+          Echo is thinking…
+        </ThemedText>
       );
     case 'echo_error':
-      return (
-        <>
-          <ErrorState message={state.error.message} onRetry={handlers.onRetryEcho} onReset={handlers.onReset} />
-          <TranscriptBlock transcript={state.transcript} />
-        </>
-      );
+      return <ErrorState message={state.error.message} onRetry={handlers.onRetryEcho} onReset={handlers.onReset} />;
     case 'done':
       return (
         <>
-          <ThemedView type="backgroundElement" style={styles.responseCard}>
-            <ThemedText type="default">{state.echoResponse}</ThemedText>
-          </ThemedView>
-          <TranscriptBlock transcript={state.transcript} />
-          <PrimaryButton label="Back to home" onPress={handlers.onDone} />
+          <PrimaryButton label="Reply" onPress={handlers.onStart} />
+          <Pressable onPress={handlers.onDone} style={styles.finishLink} accessibilityRole="button" accessibilityLabel="Finish debrief">
+            <ThemedText type="link">Finish & back to home</ThemedText>
+          </Pressable>
         </>
       );
     default:
       return null;
   }
+}
+
+function ConversationThread({ turns }: { turns: DebriefTurn[] }) {
+  return (
+    <ThemedView style={styles.thread}>
+      {turns.map((turn, index) => (
+        <ThemedView key={index} style={styles.threadTurn}>
+          <ThemedView type="backgroundElement" style={styles.transcriptCard}>
+            <ThemedText type="small" themeColor="textSecondary">
+              YOU
+            </ThemedText>
+            <ThemedText type="small" style={styles.transcriptText}>
+              {turn.transcript}
+            </ThemedText>
+          </ThemedView>
+          <ThemedView type="backgroundElement" style={styles.responseCard}>
+            <ThemedText type="small" themeColor="textSecondary">
+              ECHO
+            </ThemedText>
+            <ThemedText type="default">{turn.echoResponse}</ThemedText>
+          </ThemedView>
+        </ThemedView>
+      ))}
+    </ThemedView>
+  );
 }
 
 function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
@@ -304,19 +344,6 @@ function ErrorState({ message, onRetry, onReset }: { message: string; onRetry?: 
           <ThemedText type="link">Start over</ThemedText>
         </Pressable>
       </ThemedView>
-    </ThemedView>
-  );
-}
-
-function TranscriptBlock({ transcript }: { transcript: string }) {
-  return (
-    <ThemedView type="backgroundElement" style={styles.transcriptCard}>
-      <ThemedText type="small" themeColor="textSecondary">
-        TRANSCRIPT
-      </ThemedText>
-      <ThemedText type="small" style={styles.transcriptText}>
-        {transcript}
-      </ThemedText>
     </ThemedView>
   );
 }
@@ -360,10 +387,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: Spacing.two,
   },
+  finishLink: {
+    alignItems: 'center',
+    padding: Spacing.two,
+  },
   primaryButton: {
     paddingVertical: Spacing.three,
     borderRadius: Spacing.three,
     alignItems: 'center',
+  },
+  thread: {
+    gap: Spacing.three,
+  },
+  threadTurn: {
+    gap: Spacing.two,
   },
   responseCard: {
     padding: Spacing.three,

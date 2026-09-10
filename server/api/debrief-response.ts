@@ -33,6 +33,31 @@ function isPastDebrief(value: unknown): value is PastDebrief {
   );
 }
 
+type ConversationTurn = { transcript: string; echoResponse: string };
+
+function isConversationTurn(value: unknown): value is ConversationTurn {
+  if (!value || typeof value !== 'object') return false;
+  const t = value as Record<string, unknown>;
+  return typeof t.transcript === 'string' && typeof t.echoResponse === 'string';
+}
+
+// Bounds the in-session conversation the same way past-debrief history is
+// bounded below — a single debrief shouldn't be able to grow the prompt
+// without limit either.
+const TURN_LIMIT = 20;
+const TURN_FIELD_CHAR_LIMIT = 4000;
+
+function toConversationTurns(value: unknown): ConversationTurn[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isConversationTurn)
+    .slice(-TURN_LIMIT)
+    .map((t) => ({
+      transcript: t.transcript.slice(0, TURN_FIELD_CHAR_LIMIT),
+      echoResponse: t.echoResponse.slice(0, TURN_FIELD_CHAR_LIMIT),
+    }));
+}
+
 // Malformed or missing history degrades to no memory for this request rather
 // than failing the debrief outright — memory is a quality improvement, not a
 // dependency the whole feature should break on. The cap and truncation are
@@ -74,7 +99,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { transcript, player, history } = req.body ?? {};
+  const { transcript, player, history, turns } = req.body ?? {};
   if (!transcript || typeof transcript !== 'string') {
     res.status(400).json({ error: 'missing_transcript' });
     return;
@@ -84,12 +109,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
+  // The current debrief's conversation so far (if any), turned into proper
+  // alternating messages so Echo replies with full in-session context, then
+  // the new transcript as the latest turn.
+  const priorTurns = toConversationTurns(turns);
+  const messages = priorTurns.flatMap(
+    (t): { role: 'user' | 'assistant'; content: string }[] => [
+      { role: 'user' as const, content: t.transcript },
+      { role: 'assistant' as const, content: t.echoResponse },
+    ],
+  );
+  messages.push({ role: 'user', content: transcript });
+
   try {
     const message = await anthropic.messages.create({
       model: CHAT_MODEL,
       max_tokens: 1024,
       system: buildEchoSystemPrompt(player, toPastDebriefArray(history)),
-      messages: [{ role: 'user', content: transcript }],
+      messages,
     });
 
     const textBlock = message.content.find((block) => block.type === 'text');

@@ -1,5 +1,4 @@
-import { useFocusEffect } from '@react-navigation/native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -196,10 +195,14 @@ function DebriefDetailSheet({
         </Text>
         {opponent ? <Text style={styles.sheetOpponent}>vs {opponent}</Text> : null}
         <ScrollView style={styles.sheetScroll}>
-          <Text style={styles.sheetLabel}>ECHO</Text>
-          <Text style={styles.sheetBody}>{record.echoResponse}</Text>
-          <Text style={[styles.sheetLabel, styles.sheetLabelSpaced]}>TRANSCRIPT</Text>
-          <Text style={styles.sheetBody}>{record.transcript}</Text>
+          {record.turns.map((turn, index) => (
+            <View key={index} style={index > 0 ? styles.sheetTurnSpaced : undefined}>
+              <Text style={styles.sheetLabel}>YOU</Text>
+              <Text style={styles.sheetBody}>{turn.transcript}</Text>
+              <Text style={[styles.sheetLabel, styles.sheetLabelSpaced]}>ECHO</Text>
+              <Text style={styles.sheetBody}>{turn.echoResponse}</Text>
+            </View>
+          ))}
         </ScrollView>
         <Pressable
           onPress={confirmDelete}
@@ -333,6 +336,12 @@ const styles = StyleSheet.create({
   },
   sheetLabelSpaced: {
     marginTop: Spacing.three,
+  },
+  sheetTurnSpaced: {
+    marginTop: Spacing.four,
+    paddingTop: Spacing.three,
+    borderTopWidth: 1,
+    borderTopColor: CareerTheme.border,
   },
   sheetBody: {
     color: CareerTheme.textSecondary,

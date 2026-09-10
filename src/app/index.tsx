@@ -1,5 +1,4 @@
-import { useFocusEffect } from '@react-navigation/native';
-import { Link, Redirect, router } from 'expo-router';
+import { Link, Redirect, router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -244,7 +243,7 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.newsBody} numberOfLines={3}>
               {latestDebrief
-                ? latestDebrief.echoResponse
+                ? latestDebrief.turns[latestDebrief.turns.length - 1].echoResponse
                 : 'Your story starts after your first debrief. Echo is ready when you are.'}
             </Text>
           </View>

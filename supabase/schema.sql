@@ -26,12 +26,14 @@ create table if not exists public.fixtures (
   deleted boolean not null default false
 );
 
+-- turns: [{ "transcript": "...", "echoResponse": "..." }, ...] — a debrief is
+-- a conversation, not a single exchange, so it's an ordered array rather
+-- than flat transcript/echo_response columns.
 create table if not exists public.debriefs (
   id text primary key,
   user_id uuid not null references auth.users (id) on delete cascade,
   fixture_id text,
-  transcript text not null,
-  echo_response text not null,
+  turns jsonb not null,
   created_at timestamptz not null,
   deleted boolean not null default false
 );

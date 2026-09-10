@@ -1,4 +1,4 @@
-import { loadDebriefHistory, replaceAllDebriefs, type DebriefRecord } from '@/lib/debrief-history';
+import { loadDebriefHistory, replaceAllDebriefs, type DebriefRecord, type DebriefTurn } from '@/lib/debrief-history';
 import { loadFixtures, replaceAllFixtures, type Fixture } from '@/lib/fixtures';
 import { loadPlayerProfile, restorePlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 import { supabase } from '@/lib/supabase';
@@ -22,8 +22,7 @@ type FixtureRow = {
 type DebriefRow = {
   id: string;
   fixture_id: string | null;
-  transcript: string;
-  echo_response: string;
+  turns: DebriefTurn[];
   created_at: string;
 };
 
@@ -101,21 +100,19 @@ async function runSync(): Promise<{ changed: boolean }> {
           id: r.id,
           user_id: userId,
           fixture_id: r.fixtureId ?? null,
-          transcript: r.transcript,
-          echo_response: r.echoResponse,
+          turns: r.turns,
           created_at: r.createdAt,
         })),
       );
     }
 
-    // 3. Pull what's live and union into local by id (local copy wins —
-    //    records are immutable, so any difference is formatting).
+    // 3. Pull what's live and union into local by id. Debrief records are
+    //    NOT immutable anymore (a reply appends a turn), so unlike fixtures,
+    //    a remote copy with more turns than the local one should win —
+    //    otherwise a reply made on another device would be silently dropped.
     const [{ data: remoteFixtures }, { data: remoteDebriefs }] = await Promise.all([
       supabase.from('fixtures').select('id, opponent, match_date, competition, created_at').eq('deleted', false),
-      supabase
-        .from('debriefs')
-        .select('id, fixture_id, transcript, echo_response, created_at')
-        .eq('deleted', false),
+      supabase.from('debriefs').select('id, fixture_id, turns, created_at').eq('deleted', false),
     ]);
 
     let changed = false;
@@ -127,8 +124,8 @@ async function runSync(): Promise<{ changed: boolean }> {
       }
     }
     if (remoteDebriefs) {
-      const merged = mergeById(localDebriefs, (remoteDebriefs as DebriefRow[]).map(debriefFromRow));
-      if (merged.length !== localDebriefs.length) {
+      const merged = mergeDebriefs(localDebriefs, (remoteDebriefs as DebriefRow[]).map(debriefFromRow));
+      if (JSON.stringify(merged) !== JSON.stringify(localDebriefs)) {
         await replaceAllDebriefs(merged);
         changed = true;
       }
@@ -187,6 +184,21 @@ function mergeById<T extends { id: string }>(local: T[], remote: T[]): T[] {
   return [...byId.values()];
 }
 
+// Debrief records can grow (a reply appends a turn), so unlike the plain
+// last-write-wins of mergeById, whichever copy of a given record has more
+// turns wins — that's always the more complete conversation.
+function mergeDebriefs(local: DebriefRecord[], remote: DebriefRecord[]): DebriefRecord[] {
+  const byId = new Map<string, DebriefRecord>();
+  for (const record of local) byId.set(record.id, record);
+  for (const record of remote) {
+    const existing = byId.get(record.id);
+    if (!existing || record.turns.length > existing.turns.length) {
+      byId.set(record.id, record);
+    }
+  }
+  return [...byId.values()];
+}
+
 function fixtureFromRow(row: FixtureRow): Fixture {
   return {
     id: row.id,
@@ -201,8 +213,7 @@ function debriefFromRow(row: DebriefRow): DebriefRecord {
   return {
     id: row.id,
     fixtureId: row.fixture_id ?? undefined,
-    transcript: row.transcript,
-    echoResponse: row.echo_response,
+    turns: row.turns,
     createdAt: row.created_at,
   };
 }
