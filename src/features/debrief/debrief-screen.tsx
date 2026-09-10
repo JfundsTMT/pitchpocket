@@ -7,7 +7,7 @@ import {
   useAudioRecorderState,
 } from 'expo-audio';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -36,10 +36,15 @@ const RECORDING_WARNING_SECONDS = 5 * 60;
 // debrief to a 413 after the fact is worse than cutting it off with warning.
 const RECORDING_HARD_STOP_SECONDS = 10 * 60;
 
+// One composer for both input methods: typing and voice both land in the
+// same editable box. Voice transcription appends into it rather than
+// sending straight away, so a mis-heard word can be fixed before it goes
+// to Echo. There's no separate "choose speech or text" step — both are
+// just always available from the same screen.
 type ScreenState =
   | { phase: 'loading_profile' }
   | { phase: 'no_profile' }
-  | { phase: 'idle' }
+  | { phase: 'composing' }
   | { phase: 'recording' }
   | { phase: 'transcribing'; fileUri: string }
   | { phase: 'transcribe_error'; fileUri: string; error: EchoApiError }
@@ -56,6 +61,7 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   const [pastDebriefs, setPastDebriefs] = useState<PastDebrief[]>([]);
   const [fixture, setFixture] = useState<Fixture | null>(null);
   const [turns, setTurns] = useState<DebriefTurn[]>([]);
+  const [draft, setDraft] = useState('');
   const [state, setState] = useState<ScreenState>({ phase: 'loading_profile' });
   const recorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 100);
@@ -71,7 +77,7 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
         setProfile(loadedProfile);
         setPastDebriefs(buildRecentDebriefContext(loadedHistory));
         setFixture(fixtureId ? (loadedFixtures.find((f) => f.id === fixtureId) ?? null) : null);
-        setState(loadedProfile ? { phase: 'idle' } : { phase: 'no_profile' });
+        setState(loadedProfile ? { phase: 'composing' } : { phase: 'no_profile' });
       },
     );
   }, [fixtureId]);
@@ -128,7 +134,7 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
     await setAudioModeAsync({ allowsRecording: false });
     const uri = recorder.uri;
     if (!uri) {
-      setState({ phase: 'idle' });
+      setState({ phase: 'composing' });
       return;
     }
     await runTranscription(uri);
@@ -137,7 +143,7 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   async function handleDiscardRecording() {
     await recorder.stop();
     await setAudioModeAsync({ allowsRecording: false });
-    setState(turns.length > 0 ? { phase: 'done' } : { phase: 'idle' });
+    setState({ phase: 'composing' });
   }
 
   async function runTranscription(fileUri: string) {
@@ -147,20 +153,34 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
       setState({ phase: 'transcribe_error', fileUri, error: result.error });
       return;
     }
-    // A silent or unintelligible recording produces a near-empty transcript —
-    // catch it here instead of burning an Echo call on nothing.
-    if (result.data.transcript.trim().length < 5) {
-      setState({
-        phase: 'transcribe_error',
-        fileUri,
-        error: {
-          kind: 'server_error',
-          message: "Couldn't hear anything in that recording — try again a bit closer to the mic.",
-        },
-      });
+    const heard = result.data.transcript.trim();
+    // A silent or unintelligible recording produces a near-empty transcript.
+    // If there's nothing typed already either, that's worth telling the
+    // player rather than silently returning to an empty box.
+    if (heard.length < 5) {
+      if (draft.trim().length === 0) {
+        setState({
+          phase: 'transcribe_error',
+          fileUri,
+          error: {
+            kind: 'server_error',
+            message: "Couldn't hear anything in that recording — try again a bit closer to the mic.",
+          },
+        });
+        return;
+      }
+      setState({ phase: 'composing' });
       return;
     }
-    await runEchoResponse(result.data.transcript);
+    setDraft((current) => (current.trim().length > 0 ? `${current.trim()} ${heard}` : heard));
+    setState({ phase: 'composing' });
+  }
+
+  function handleSend() {
+    const text = draft.trim();
+    if (!text) return;
+    setDraft('');
+    runEchoResponse(text);
   }
 
   async function runEchoResponse(pendingTranscript: string) {
@@ -178,56 +198,65 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          {state.phase !== 'recording' && state.phase !== 'transcribing' && state.phase !== 'thinking' ? (
-            <Pressable
-              onPress={() => router.back()}
-              hitSlop={12}
-              style={styles.backLink}
-              accessibilityRole="button"
-              accessibilityLabel="Back">
-              <ThemedText type="small" themeColor="textSecondary">
-                ‹ Back
-              </ThemedText>
-            </Pressable>
-          ) : null}
-          <ThemedText type="title" style={styles.title}>
-            Debrief with Echo
-          </ThemedText>
-          {fixture ? (
-            <ThemedText type="default" themeColor="textSecondary" style={styles.fixtureContext}>
-              vs {fixture.opponent} — {formatFixtureDate(fixture.date)}
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.select({ ios: 12, default: 0 })}>
+          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+            {state.phase !== 'recording' && state.phase !== 'transcribing' && state.phase !== 'thinking' ? (
+              <Pressable
+                onPress={() => router.back()}
+                hitSlop={12}
+                style={styles.backLink}
+                accessibilityRole="button"
+                accessibilityLabel="Back">
+                <ThemedText type="small" themeColor="textSecondary">
+                  ‹ Back
+                </ThemedText>
+              </Pressable>
+            ) : null}
+            <ThemedText type="title" style={styles.title}>
+              Debrief with Echo
             </ThemedText>
-          ) : null}
+            {fixture ? (
+              <ThemedText type="default" themeColor="textSecondary" style={styles.fixtureContext}>
+                vs {fixture.opponent} — {formatFixtureDate(fixture.date)}
+              </ThemedText>
+            ) : null}
 
-          {turns.length > 0 ? <ConversationThread turns={turns} /> : null}
+            {turns.length > 0 ? <ConversationThread turns={turns} /> : null}
 
-          {renderBody(state, {
-            onStart: handleStartRecording,
-            onStop: handleStopRecording,
-            onDiscard: handleDiscardRecording,
-            onRetryTranscribe: () => runTranscription(state.phase === 'transcribe_error' ? state.fileUri : ''),
-            onRetryEcho: () => runEchoResponse(state.phase === 'echo_error' ? state.pendingTranscript : ''),
-            onReset: () => setState(turns.length > 0 ? { phase: 'done' } : { phase: 'idle' }),
-            onDone: () => router.replace('/'),
-            hasTurns: turns.length > 0,
-            elapsedSeconds: recorderState.durationMillis ? Math.floor(recorderState.durationMillis / 1000) : 0,
-          })}
-        </ScrollView>
+            {renderBody(state, {
+              draft,
+              onChangeDraft: setDraft,
+              onStartRecording: handleStartRecording,
+              onStopRecording: handleStopRecording,
+              onDiscardRecording: handleDiscardRecording,
+              onSend: handleSend,
+              onRetryTranscribe: () => runTranscription(state.phase === 'transcribe_error' ? state.fileUri : ''),
+              onRetryEcho: () => runEchoResponse(state.phase === 'echo_error' ? state.pendingTranscript : ''),
+              onDismissError: () => setState({ phase: 'composing' }),
+              onDone: () => router.replace('/'),
+              elapsedSeconds: recorderState.durationMillis ? Math.floor(recorderState.durationMillis / 1000) : 0,
+            })}
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </ThemedView>
   );
 }
 
 type BodyHandlers = {
-  onStart: () => void;
-  onStop: () => void;
-  onDiscard: () => void;
+  draft: string;
+  onChangeDraft: (text: string) => void;
+  onStartRecording: () => void;
+  onStopRecording: () => void;
+  onDiscardRecording: () => void;
+  onSend: () => void;
   onRetryTranscribe: () => void;
   onRetryEcho: () => void;
-  onReset: () => void;
+  onDismissError: () => void;
   onDone: () => void;
-  hasTurns: boolean;
   elapsedSeconds: number;
 };
 
@@ -237,11 +266,18 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
       return <ActivityIndicator />;
     case 'no_profile':
       return <ThemedText type="default">Complete onboarding first — no player profile found.</ThemedText>;
-    case 'idle':
-      return <PrimaryButton label="Start recording" onPress={handlers.onStart} />;
+    case 'composing':
+      return <Composer {...handlers} />;
     case 'recording':
       return (
         <>
+          {handlers.draft.trim().length > 0 ? (
+            <ThemedView type="backgroundElement" style={styles.draftPreview}>
+              <ThemedText type="small" themeColor="textSecondary" numberOfLines={3}>
+                {handlers.draft}
+              </ThemedText>
+            </ThemedView>
+          ) : null}
           <ThemedText type="default" style={styles.status}>
             Recording — {formatDuration(handlers.elapsedSeconds)}
           </ThemedText>
@@ -250,9 +286,9 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
               Getting long — auto-sends at 10:00 so nothing gets lost.
             </ThemedText>
           ) : null}
-          <PrimaryButton label="Stop & send" onPress={handlers.onStop} />
+          <PrimaryButton label="Stop" onPress={handlers.onStopRecording} />
           <Pressable
-            onPress={handlers.onDiscard}
+            onPress={handlers.onDiscardRecording}
             style={styles.discardLink}
             accessibilityRole="button"
             accessibilityLabel="Discard recording">
@@ -269,7 +305,7 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
         <ErrorState
           message={state.error.message}
           onRetry={state.fileUri ? handlers.onRetryTranscribe : undefined}
-          onReset={handlers.onReset}
+          onReset={handlers.onDismissError}
         />
       );
     case 'thinking':
@@ -279,12 +315,16 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
         </ThemedText>
       );
     case 'echo_error':
-      return <ErrorState message={state.error.message} onRetry={handlers.onRetryEcho} onReset={handlers.onReset} />;
+      return <ErrorState message={state.error.message} onRetry={handlers.onRetryEcho} onReset={handlers.onDismissError} />;
     case 'done':
       return (
         <>
-          <PrimaryButton label="Reply" onPress={handlers.onStart} />
-          <Pressable onPress={handlers.onDone} style={styles.finishLink} accessibilityRole="button" accessibilityLabel="Finish debrief">
+          <Composer {...handlers} />
+          <Pressable
+            onPress={handlers.onDone}
+            style={styles.finishLink}
+            accessibilityRole="button"
+            accessibilityLabel="Finish debrief">
             <ThemedText type="link">Finish & back to home</ThemedText>
           </Pressable>
         </>
@@ -292,6 +332,44 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
     default:
       return null;
   }
+}
+
+function Composer({ draft, onChangeDraft, onStartRecording, onSend }: BodyHandlers) {
+  const theme = useTheme();
+  const canSend = draft.trim().length > 0;
+  return (
+    <ThemedView type="backgroundElement" style={styles.composer}>
+      <TextInput
+        value={draft}
+        onChangeText={onChangeDraft}
+        placeholder="Type your debrief, or tap the mic to speak it…"
+        placeholderTextColor={theme.textSecondary}
+        multiline
+        style={[styles.composerInput, { color: theme.text }]}
+        accessibilityLabel="Debrief message"
+      />
+      <ThemedView style={styles.composerActions}>
+        <Pressable
+          onPress={onStartRecording}
+          style={[styles.micButton, { borderColor: theme.text }]}
+          accessibilityRole="button"
+          accessibilityLabel="Record voice message">
+          <ThemedText type="smallBold">Mic</ThemedText>
+        </Pressable>
+        <Pressable
+          onPress={onSend}
+          disabled={!canSend}
+          style={[styles.sendButton, { backgroundColor: theme.text, opacity: canSend ? 1 : 0.3 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Send message"
+          accessibilityState={{ disabled: !canSend }}>
+          <ThemedText type="smallBold" themeColor="background">
+            Send
+          </ThemedText>
+        </Pressable>
+      </ThemedView>
+    </ThemedView>
+  );
 }
 
 function ConversationThread({ turns }: { turns: DebriefTurn[] }) {
@@ -340,8 +418,8 @@ function ErrorState({ message, onRetry, onReset }: { message: string; onRetry?: 
       <ThemedText type="default">{message}</ThemedText>
       <ThemedView style={styles.errorActions}>
         {onRetry ? <PrimaryButton label="Retry" onPress={onRetry} /> : null}
-        <Pressable onPress={onReset} accessibilityRole="button" accessibilityLabel="Start over">
-          <ThemedText type="link">Start over</ThemedText>
+        <Pressable onPress={onReset} accessibilityRole="button" accessibilityLabel="Dismiss">
+          <ThemedText type="link">Dismiss</ThemedText>
         </Pressable>
       </ThemedView>
     </ThemedView>
@@ -363,6 +441,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   safeArea: {
+    flex: 1,
+  },
+  flex: {
     flex: 1,
   },
   content: {
@@ -395,6 +476,42 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     borderRadius: Spacing.three,
     alignItems: 'center',
+  },
+  composer: {
+    borderRadius: Spacing.three,
+    padding: Spacing.three,
+    gap: Spacing.two,
+  },
+  composerInput: {
+    minHeight: 90,
+    maxHeight: 220,
+    fontSize: 16,
+    lineHeight: 22,
+    textAlignVertical: 'top',
+  },
+  composerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: Spacing.two,
+  },
+  micButton: {
+    borderWidth: 1,
+    borderRadius: Spacing.three,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.four,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendButton: {
+    borderRadius: Spacing.three,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.four,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  draftPreview: {
+    padding: Spacing.two,
+    borderRadius: Spacing.two,
   },
   thread: {
     gap: Spacing.three,
