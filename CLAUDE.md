@@ -1,7 +1,14 @@
 # PitchPocket — CLAUDE.md
 
 ## What this is
-PitchPocket is a career mode engine for real football players. FM/FIFA "The Journey,". Every feature exists to make a real player's development feel like career mode: visible identity, visible progression.
+
+**The problem.** A footballer's head is full — doubts, patterns half-noticed, lessons from good games and bad ones — and none of it has anywhere to go. Left unorganised, it becomes noise: overthinking on the pitch, repeated mistakes, best days that can't be reproduced because he never understood what made them. There is nowhere a player can safely and honestly work through his own game — and no tool that turns what's in his head into something he can actually use.
+
+**The idea.** A platform where a footballer can safely and effortlessly organise his thoughts about his game. He speaks; an intelligence that understands football helps him make sense of what he said — steadily, honestly, never generically. His discoveries accumulate into a living map of his own game. His watch data quietly corroborates what his body was doing. Over time he understands what he personally needs to play with a clear, quiet mind — and how to get there on purpose.
+
+**One sentence:** PitchPocket gives every footballer a place to organise their mind — so they can play at their best, in flow, on purpose.
+
+**On "career mode":** FM/FIFA career-mode is a reference for *vibe* — the visual and interaction feel, covered in the Design brief below — not a description of what the product fundamentally is. What it is, is the vision above: a place to organise your football mind. Don't build a feature just because career mode has it; build it because it helps a player organise his mind.
 
 Target user: aspiring players from Sunday league to academy level. Founder is a player himself — the product must pass the "would a 19-year-old chasing it actually use this after a wet Sunday match" test. //still deciding 
 
