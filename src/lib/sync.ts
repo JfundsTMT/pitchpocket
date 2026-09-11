@@ -1,5 +1,6 @@
 import { loadDebriefHistory, replaceAllDebriefs, type DebriefRecord, type DebriefTurn } from '@/lib/debrief-history';
 import { loadFixtures, replaceAllFixtures, type Fixture } from '@/lib/fixtures';
+import { loadMindMapNodes, replaceAllMindMapNodes, type MindMapNode } from '@/lib/mind-map-nodes';
 import { loadPlayerProfile, restorePlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 import { supabase } from '@/lib/supabase';
 import { onPushRequested } from '@/lib/sync-signal';
@@ -23,6 +24,13 @@ type DebriefRow = {
   id: string;
   fixture_id: string | null;
   turns: DebriefTurn[];
+  created_at: string;
+};
+
+type MindMapNodeRow = {
+  id: string;
+  label: string;
+  debrief_id: string | null;
   created_at: string;
 };
 
@@ -57,10 +65,11 @@ async function runSync(): Promise<{ changed: boolean }> {
     const userId = await ensureSignedIn();
     if (!userId) return { changed: false };
 
-    const [profile, localFixtures, localDebriefs, tombstones] = await Promise.all([
+    const [profile, localFixtures, localDebriefs, localNodes, tombstones] = await Promise.all([
       loadPlayerProfile(),
       loadFixtures(),
       loadDebriefHistory(),
+      loadMindMapNodes(),
       loadTombstones(),
     ]);
 
@@ -68,11 +77,15 @@ async function runSync(): Promise<{ changed: boolean }> {
     //    can't re-import something the player just removed.
     if (tombstones.fixtures.length > 0) {
       const { error } = await supabase.from('fixtures').update({ deleted: true }).in('id', tombstones.fixtures);
-      if (!error) await clearTombstones({ fixtures: tombstones.fixtures, debriefs: [] });
+      if (!error) await clearTombstones({ fixtures: tombstones.fixtures });
     }
     if (tombstones.debriefs.length > 0) {
       const { error } = await supabase.from('debriefs').update({ deleted: true }).in('id', tombstones.debriefs);
-      if (!error) await clearTombstones({ fixtures: [], debriefs: tombstones.debriefs });
+      if (!error) await clearTombstones({ debriefs: tombstones.debriefs });
+    }
+    if (tombstones.mindMapNodes.length > 0) {
+      const { error } = await supabase.from('mind_map_nodes').update({ deleted: true }).in('id', tombstones.mindMapNodes);
+      if (!error) await clearTombstones({ mindMapNodes: tombstones.mindMapNodes });
     }
 
     // 2. Push everything local. Volumes are tiny (a season is dozens of
@@ -105,14 +118,26 @@ async function runSync(): Promise<{ changed: boolean }> {
         })),
       );
     }
+    if (localNodes.length > 0) {
+      await supabase.from('mind_map_nodes').upsert(
+        localNodes.map((n) => ({
+          id: n.id,
+          user_id: userId,
+          label: n.label,
+          debrief_id: n.debriefId ?? null,
+          created_at: n.createdAt,
+        })),
+      );
+    }
 
     // 3. Pull what's live and union into local by id. Debrief records are
     //    NOT immutable anymore (a reply appends a turn), so unlike fixtures,
     //    a remote copy with more turns than the local one should win —
     //    otherwise a reply made on another device would be silently dropped.
-    const [{ data: remoteFixtures }, { data: remoteDebriefs }] = await Promise.all([
+    const [{ data: remoteFixtures }, { data: remoteDebriefs }, { data: remoteNodes }] = await Promise.all([
       supabase.from('fixtures').select('id, opponent, match_date, competition, created_at').eq('deleted', false),
       supabase.from('debriefs').select('id, fixture_id, turns, created_at').eq('deleted', false),
+      supabase.from('mind_map_nodes').select('id, label, debrief_id, created_at').eq('deleted', false),
     ]);
 
     let changed = false;
@@ -127,6 +152,13 @@ async function runSync(): Promise<{ changed: boolean }> {
       const merged = mergeDebriefs(localDebriefs, (remoteDebriefs as DebriefRow[]).map(debriefFromRow));
       if (JSON.stringify(merged) !== JSON.stringify(localDebriefs)) {
         await replaceAllDebriefs(merged);
+        changed = true;
+      }
+    }
+    if (remoteNodes) {
+      const merged = mergeById(localNodes, (remoteNodes as MindMapNodeRow[]).map(nodeFromRow));
+      if (merged.length !== localNodes.length) {
+        await replaceAllMindMapNodes(merged);
         changed = true;
       }
     }
@@ -214,6 +246,15 @@ function debriefFromRow(row: DebriefRow): DebriefRecord {
     id: row.id,
     fixtureId: row.fixture_id ?? undefined,
     turns: row.turns,
+    createdAt: row.created_at,
+  };
+}
+
+function nodeFromRow(row: MindMapNodeRow): MindMapNode {
+  return {
+    id: row.id,
+    label: row.label,
+    debriefId: row.debrief_id ?? undefined,
     createdAt: row.created_at,
   };
 }

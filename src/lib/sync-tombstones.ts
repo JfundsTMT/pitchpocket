@@ -8,9 +8,10 @@ const STORAGE_KEY = 'pitchpocket.syncTombstones.v1';
 export type Tombstones = {
   fixtures: string[];
   debriefs: string[];
+  mindMapNodes: string[];
 };
 
-const EMPTY: Tombstones = { fixtures: [], debriefs: [] };
+const EMPTY: Tombstones = { fixtures: [], debriefs: [], mindMapNodes: [] };
 
 export async function loadTombstones(): Promise<Tombstones> {
   const parsed = await readJson<unknown>(STORAGE_KEY, EMPTY);
@@ -19,6 +20,7 @@ export async function loadTombstones(): Promise<Tombstones> {
   return {
     fixtures: Array.isArray(t.fixtures) ? t.fixtures.filter((id) => typeof id === 'string') : [],
     debriefs: Array.isArray(t.debriefs) ? t.debriefs.filter((id) => typeof id === 'string') : [],
+    mindMapNodes: Array.isArray(t.mindMapNodes) ? t.mindMapNodes.filter((id) => typeof id === 'string') : [],
   };
 }
 
@@ -34,10 +36,13 @@ export async function clearAllTombstones(): Promise<void> {
   await writeJson(STORAGE_KEY, EMPTY);
 }
 
-export async function clearTombstones(confirmed: Tombstones): Promise<void> {
+export async function clearTombstones(confirmed: Partial<Tombstones>): Promise<void> {
   const current = await loadTombstones();
   await writeJson(STORAGE_KEY, {
-    fixtures: current.fixtures.filter((id) => !confirmed.fixtures.includes(id)),
-    debriefs: current.debriefs.filter((id) => !confirmed.debriefs.includes(id)),
+    fixtures: confirmed.fixtures ? current.fixtures.filter((id) => !confirmed.fixtures!.includes(id)) : current.fixtures,
+    debriefs: confirmed.debriefs ? current.debriefs.filter((id) => !confirmed.debriefs!.includes(id)) : current.debriefs,
+    mindMapNodes: confirmed.mindMapNodes
+      ? current.mindMapNodes.filter((id) => !confirmed.mindMapNodes!.includes(id))
+      : current.mindMapNodes,
   });
 }

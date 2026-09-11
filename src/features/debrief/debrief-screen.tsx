@@ -20,11 +20,14 @@ import {
   buildRecentDebriefContext,
   createDebriefRecord,
   loadDebriefHistory,
+  setNodeOfferStatus,
   type DebriefTurn,
+  type NodeOffer,
   type PastDebrief,
 } from '@/lib/debrief-history';
 import { getEchoResponse, transcribeAudio, type EchoApiError } from '@/lib/echo-api';
 import { loadFixtures, type Fixture } from '@/lib/fixtures';
+import { createMindMapNode } from '@/lib/mind-map-nodes';
 import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 
 // Soft warning threshold shown in the UI. The real limit is enforced
@@ -191,8 +194,39 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
       setState({ phase: 'echo_error', pendingTranscript, error: result.error });
       return;
     }
-    setTurns((current) => [...current, { transcript: pendingTranscript, echoResponse: result.data.echoResponse }]);
+    const nodeOffer: NodeOffer | undefined = result.data.nodeOffer
+      ? { label: result.data.nodeOffer.label, status: 'pending' }
+      : undefined;
+    setTurns((current) => [
+      ...current,
+      { transcript: pendingTranscript, echoResponse: result.data.echoResponse, nodeOffer },
+    ]);
     setState({ phase: 'done' });
+  }
+
+  // The player accepting/declining Echo's offer to pin a discovery. Best
+  // effort on the debrief-record link: if the record hasn't finished being
+  // created yet (a narrow race right after the very first turn), the node
+  // still gets pinned, just without that backlink.
+  async function handlePinNode(turnIndex: number) {
+    const turn = turns[turnIndex];
+    if (!turn?.nodeOffer) return;
+    await createMindMapNode({ label: turn.nodeOffer.label, debriefId: recordId.current ?? undefined });
+    if (recordId.current) {
+      await setNodeOfferStatus(recordId.current, turnIndex, 'accepted');
+    }
+    setTurns((current) =>
+      current.map((t, i) => (i === turnIndex && t.nodeOffer ? { ...t, nodeOffer: { ...t.nodeOffer, status: 'accepted' } } : t)),
+    );
+  }
+
+  async function handleSkipNode(turnIndex: number) {
+    const turn = turns[turnIndex];
+    if (!turn?.nodeOffer || !recordId.current) return;
+    await setNodeOfferStatus(recordId.current, turnIndex, 'declined');
+    setTurns((current) =>
+      current.map((t, i) => (i === turnIndex && t.nodeOffer ? { ...t, nodeOffer: { ...t.nodeOffer, status: 'declined' } } : t)),
+    );
   }
 
   return (
@@ -224,7 +258,9 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
               </ThemedText>
             ) : null}
 
-            {turns.length > 0 ? <ConversationThread turns={turns} /> : null}
+            {turns.length > 0 ? (
+              <ConversationThread turns={turns} onPinNode={handlePinNode} onSkipNode={handleSkipNode} />
+            ) : null}
 
             {renderBody(state, {
               draft,
@@ -372,7 +408,15 @@ function Composer({ draft, onChangeDraft, onStartRecording, onSend }: BodyHandle
   );
 }
 
-function ConversationThread({ turns }: { turns: DebriefTurn[] }) {
+function ConversationThread({
+  turns,
+  onPinNode,
+  onSkipNode,
+}: {
+  turns: DebriefTurn[];
+  onPinNode: (turnIndex: number) => void;
+  onSkipNode: (turnIndex: number) => void;
+}) {
   return (
     <ThemedView style={styles.thread}>
       {turns.map((turn, index) => (
@@ -391,8 +435,42 @@ function ConversationThread({ turns }: { turns: DebriefTurn[] }) {
             </ThemedText>
             <ThemedText type="default">{turn.echoResponse}</ThemedText>
           </ThemedView>
+          {turn.nodeOffer?.status === 'pending' ? (
+            <NodeOfferPrompt
+              offer={turn.nodeOffer}
+              onPin={() => onPinNode(index)}
+              onSkip={() => onSkipNode(index)}
+            />
+          ) : turn.nodeOffer?.status === 'accepted' ? (
+            <ThemedText type="small" themeColor="textSecondary" style={styles.pinnedLabel}>
+              Pinned to your mind map
+            </ThemedText>
+          ) : null}
         </ThemedView>
       ))}
+    </ThemedView>
+  );
+}
+
+function NodeOfferPrompt({ offer, onPin, onSkip }: { offer: NodeOffer; onPin: () => void; onSkip: () => void }) {
+  const theme = useTheme();
+  return (
+    <ThemedView type="backgroundSelected" style={styles.nodeOfferCard}>
+      <ThemedText type="smallBold">Pin this: {offer.label}</ThemedText>
+      <ThemedView style={styles.nodeOfferActions}>
+        <Pressable
+          onPress={onPin}
+          style={[styles.pinButton, { backgroundColor: theme.text }]}
+          accessibilityRole="button"
+          accessibilityLabel={`Pin insight: ${offer.label}`}>
+          <ThemedText type="smallBold" themeColor="background">
+            Pin it
+          </ThemedText>
+        </Pressable>
+        <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Skip this insight">
+          <ThemedText type="link">Not now</ThemedText>
+        </Pressable>
+      </ThemedView>
     </ThemedView>
   );
 }
@@ -541,5 +619,23 @@ const styles = StyleSheet.create({
   },
   transcriptText: {
     lineHeight: 20,
+  },
+  nodeOfferCard: {
+    padding: Spacing.three,
+    borderRadius: Spacing.three,
+    gap: Spacing.two,
+  },
+  nodeOfferActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+  },
+  pinButton: {
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    borderRadius: Spacing.two,
+  },
+  pinnedLabel: {
+    fontStyle: 'italic',
   },
 });

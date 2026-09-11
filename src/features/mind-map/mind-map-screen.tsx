@@ -7,58 +7,64 @@ import { CareerTheme } from '@/constants/career-theme';
 import { Spacing } from '@/constants/theme';
 import { deleteDebriefRecord, loadDebriefHistory, type DebriefRecord } from '@/lib/debrief-history';
 import { loadFixtures, type Fixture } from '@/lib/fixtures';
+import { deleteMindMapNode, loadMindMapNodes, type MindMapNode } from '@/lib/mind-map-nodes';
 
 const NODE_SIZE = 68;
 const BASE_RADIUS = 60;
 const RADIUS_STEP = 36;
 const GOLDEN_ANGLE = 137.508 * (Math.PI / 180);
 
-type LaidOutNode = { record: DebriefRecord; x: number; y: number };
+type Laid<T> = { item: T; x: number; y: number };
+type Tab = 'insights' | 'debriefs';
 
 export function MindMapScreen() {
+  const [tab, setTab] = useState<Tab>('insights');
+  const [nodes, setNodes] = useState<MindMapNode[]>([]);
   const [history, setHistory] = useState<DebriefRecord[]>([]);
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedDebriefId, setSelectedDebriefId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
-      Promise.all([loadDebriefHistory(), loadFixtures()]).then(([loadedHistory, loadedFixtures]) => {
-        setHistory(loadedHistory);
-        setFixtures(loadedFixtures);
-        setLoaded(true);
-      });
+      Promise.all([loadMindMapNodes(), loadDebriefHistory(), loadFixtures()]).then(
+        ([loadedNodes, loadedHistory, loadedFixtures]) => {
+          setNodes(loadedNodes);
+          setHistory(loadedHistory);
+          setFixtures(loadedFixtures);
+          setLoaded(true);
+        },
+      );
     }, []),
   );
 
-  const ordered = useMemo(() => [...history].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [history]);
+  const orderedDebriefs = useMemo(
+    () => [...history].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    [history],
+  );
+  const orderedNodes = useMemo(() => [...nodes].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [nodes]);
 
-  const layout = useMemo(() => {
-    const maxRadius = BASE_RADIUS + ordered.length * RADIUS_STEP;
-    const canvasSize = Math.max(400, maxRadius * 2 + NODE_SIZE * 2);
-    const center = canvasSize / 2;
-    const nodes: LaidOutNode[] = ordered.map((record, i) => {
-      const angle = i * GOLDEN_ANGLE;
-      const radius = BASE_RADIUS + i * RADIUS_STEP;
-      return {
-        record,
-        x: center + radius * Math.cos(angle),
-        y: center + radius * Math.sin(angle),
-      };
-    });
-    return { canvasSize, nodes };
-  }, [ordered]);
+  const debriefLayout = useLayout(orderedDebriefs);
+  const nodeLayout = useLayout(orderedNodes);
 
-  const selected = layout.nodes.find((n) => n.record.id === selectedId)?.record ?? null;
+  const selectedDebrief = history.find((r) => r.id === selectedDebriefId) ?? null;
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
 
   function opponentFor(record: DebriefRecord): string | undefined {
     return fixtures.find((f) => f.id === record.fixtureId)?.opponent;
   }
 
-  async function handleDelete(record: DebriefRecord) {
+  async function handleDeleteDebrief(record: DebriefRecord) {
     await deleteDebriefRecord(record.id);
     setHistory((current) => current.filter((r) => r.id !== record.id));
-    setSelectedId(null);
+    setSelectedDebriefId(null);
+  }
+
+  async function handleDeleteNode(node: MindMapNode) {
+    await deleteMindMapNode(node.id);
+    setNodes((current) => current.filter((n) => n.id !== node.id));
+    setSelectedNodeId(null);
   }
 
   if (!loaded) {
@@ -80,59 +86,148 @@ export function MindMapScreen() {
           <View style={styles.headerSpacer} />
         </View>
 
-        {ordered.length === 0 ? (
+        <View style={styles.tabRow}>
+          <Pressable
+            onPress={() => setTab('insights')}
+            style={[styles.tab, tab === 'insights' && styles.tabActive]}
+            accessibilityRole="button"
+            accessibilityLabel="Insights tab">
+            <Text style={[styles.tabText, tab === 'insights' && styles.tabTextActive]}>INSIGHTS</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setTab('debriefs')}
+            style={[styles.tab, tab === 'debriefs' && styles.tabActive]}
+            accessibilityRole="button"
+            accessibilityLabel="Debriefs tab">
+            <Text style={[styles.tabText, tab === 'debriefs' && styles.tabTextActive]}>DEBRIEFS</Text>
+          </Pressable>
+        </View>
+
+        {tab === 'insights' ? (
+          orderedNodes.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>
+                No insights pinned yet — when you work something out for yourself in a debrief, Echo will offer to
+                pin it here.
+              </Text>
+            </View>
+          ) : (
+            <Graph
+              canvasSize={nodeLayout.canvasSize}
+              positions={nodeLayout.nodes}
+              renderNode={(laid: Laid<MindMapNode>, isLatest) => (
+                <Pressable
+                  key={laid.item.id}
+                  onPress={() => setSelectedNodeId(laid.item.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Insight: ${laid.item.label}`}
+                  style={[
+                    styles.node,
+                    isLatest && styles.nodeLatest,
+                    { left: laid.x - NODE_SIZE / 2, top: laid.y - NODE_SIZE / 2 },
+                  ]}>
+                  <Text style={[styles.nodeLabel, isLatest && styles.nodeLabelLatest]} numberOfLines={4}>
+                    {laid.item.label}
+                  </Text>
+                </Pressable>
+              )}
+            />
+          )
+        ) : orderedDebriefs.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No debriefs yet — your map fills in as you debrief.</Text>
           </View>
         ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={{ width: layout.canvasSize, height: layout.canvasSize }}>
-                {layout.nodes.slice(1).map((node, i) => (
-                  <ConnectorLine key={`line-${node.record.id}`} from={layout.nodes[i]} to={node} />
-                ))}
-                {layout.nodes.map((node, i) => {
-                  const isLatest = i === layout.nodes.length - 1;
-                  const opponent = opponentFor(node.record);
-                  return (
-                    <Pressable
-                      key={node.record.id}
-                      onPress={() => setSelectedId(node.record.id)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Debrief from ${formatShortDate(node.record.createdAt)}${opponent ? ` vs ${opponent}` : ''}`}
-                      style={[
-                        styles.node,
-                        isLatest && styles.nodeLatest,
-                        { left: node.x - NODE_SIZE / 2, top: node.y - NODE_SIZE / 2 },
-                      ]}>
-                      <Text style={[styles.nodeDate, isLatest && styles.nodeDateLatest]} numberOfLines={1}>
-                        {formatShortDate(node.record.createdAt)}
-                      </Text>
-                      {opponent ? (
-                        <Text
-                          style={[styles.nodeOpponent, isLatest && styles.nodeOpponentLatest]}
-                          numberOfLines={1}>
-                          {opponent}
-                        </Text>
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </ScrollView>
-          </ScrollView>
+          <Graph
+            canvasSize={debriefLayout.canvasSize}
+            positions={debriefLayout.nodes}
+            renderNode={(laid: Laid<DebriefRecord>, isLatest) => {
+              const opponent = opponentFor(laid.item);
+              return (
+                <Pressable
+                  key={laid.item.id}
+                  onPress={() => setSelectedDebriefId(laid.item.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Debrief from ${formatShortDate(laid.item.createdAt)}${opponent ? ` vs ${opponent}` : ''}`}
+                  style={[
+                    styles.node,
+                    isLatest && styles.nodeLatest,
+                    { left: laid.x - NODE_SIZE / 2, top: laid.y - NODE_SIZE / 2 },
+                  ]}>
+                  <Text style={[styles.nodeDate, isLatest && styles.nodeDateLatest]} numberOfLines={1}>
+                    {formatShortDate(laid.item.createdAt)}
+                  </Text>
+                  {opponent ? (
+                    <Text style={[styles.nodeOpponent, isLatest && styles.nodeOpponentLatest]} numberOfLines={1}>
+                      {opponent}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              );
+            }}
+          />
         )}
       </SafeAreaView>
 
-      {selected ? (
+      {selectedDebrief ? (
         <DebriefDetailSheet
-          record={selected}
-          opponent={opponentFor(selected)}
-          onClose={() => setSelectedId(null)}
-          onDelete={() => handleDelete(selected)}
+          record={selectedDebrief}
+          opponent={opponentFor(selectedDebrief)}
+          onClose={() => setSelectedDebriefId(null)}
+          onDelete={() => handleDeleteDebrief(selectedDebrief)}
+        />
+      ) : null}
+      {selectedNode ? (
+        <NodeDetailSheet
+          node={selectedNode}
+          onClose={() => setSelectedNodeId(null)}
+          onDelete={() => handleDeleteNode(selectedNode)}
         />
       ) : null}
     </View>
+  );
+}
+
+// Shared spiral layout math for both the insight-node graph and the
+// debrief-history graph — same visual language, different underlying data.
+function useLayout<T>(items: T[]): { canvasSize: number; nodes: Laid<T>[] } {
+  return useMemo(() => {
+    const maxRadius = BASE_RADIUS + items.length * RADIUS_STEP;
+    const canvasSize = Math.max(400, maxRadius * 2 + NODE_SIZE * 2);
+    const center = canvasSize / 2;
+    const nodes: Laid<T>[] = items.map((item, i) => {
+      const angle = i * GOLDEN_ANGLE;
+      const radius = BASE_RADIUS + i * RADIUS_STEP;
+      return {
+        item,
+        x: center + radius * Math.cos(angle),
+        y: center + radius * Math.sin(angle),
+      };
+    });
+    return { canvasSize, nodes };
+  }, [items]);
+}
+
+function Graph<T extends { x: number; y: number }>({
+  canvasSize,
+  positions,
+  renderNode,
+}: {
+  canvasSize: number;
+  positions: T[];
+  renderNode: (item: T, isLatest: boolean) => React.ReactNode;
+}) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={{ width: canvasSize, height: canvasSize }}>
+          {positions.slice(1).map((pos, i) => (
+            <ConnectorLine key={`line-${i}`} from={positions[i]} to={pos} />
+          ))}
+          {positions.map((pos, i) => renderNode(pos, i === positions.length - 1))}
+        </View>
+      </ScrollView>
+    </ScrollView>
   );
 }
 
@@ -156,6 +251,38 @@ function ConnectorLine({ from, to }: { from: { x: number; y: number }; to: { x: 
         },
       ]}
     />
+  );
+}
+
+function NodeDetailSheet({ node, onClose, onDelete }: { node: MindMapNode; onClose: () => void; onDelete: () => void }) {
+  function confirmDelete() {
+    Alert.alert('Remove this insight', "This can't be undone.", [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: onDelete },
+    ]);
+  }
+
+  return (
+    <Modal transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.sheetBackdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close" />
+      <View style={styles.sheet}>
+        <Text style={styles.sheetLabel}>PINNED</Text>
+        <Text style={styles.sheetDate}>{node.label}</Text>
+        <Text style={styles.sheetOpponent}>
+          {new Date(node.createdAt).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+        </Text>
+        <Pressable
+          onPress={confirmDelete}
+          style={styles.deleteButton}
+          accessibilityRole="button"
+          accessibilityLabel="Remove this insight">
+          <Text style={styles.deleteButtonText}>Remove this insight</Text>
+        </Pressable>
+        <Pressable onPress={onClose} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close">
+          <Text style={styles.closeButtonText}>Close</Text>
+        </Pressable>
+      </View>
+    </Modal>
   );
 }
 
@@ -201,6 +328,9 @@ function DebriefDetailSheet({
               <Text style={styles.sheetBody}>{turn.transcript}</Text>
               <Text style={[styles.sheetLabel, styles.sheetLabelSpaced]}>ECHO</Text>
               <Text style={styles.sheetBody}>{turn.echoResponse}</Text>
+              {turn.nodeOffer?.status === 'accepted' ? (
+                <Text style={styles.sheetPinnedNote}>Pinned: {turn.nodeOffer.label}</Text>
+              ) : null}
             </View>
           ))}
         </ScrollView>
@@ -252,6 +382,32 @@ const styles = StyleSheet.create({
   headerSpacer: {
     minWidth: 50,
   },
+  tabRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.four,
+    marginBottom: Spacing.two,
+  },
+  tab: {
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: CareerTheme.border,
+  },
+  tabActive: {
+    backgroundColor: CareerTheme.accentMuted,
+    borderColor: CareerTheme.accent,
+  },
+  tabText: {
+    color: CareerTheme.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  tabTextActive: {
+    color: CareerTheme.accent,
+  },
   loadingContainer: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -286,6 +442,15 @@ const styles = StyleSheet.create({
   },
   nodeLatest: {
     backgroundColor: CareerTheme.accent,
+  },
+  nodeLabel: {
+    color: CareerTheme.text,
+    fontSize: 9,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  nodeLabelLatest: {
+    color: CareerTheme.accentText,
   },
   nodeDate: {
     color: CareerTheme.text,
@@ -347,6 +512,12 @@ const styles = StyleSheet.create({
     color: CareerTheme.textSecondary,
     fontSize: 14,
     lineHeight: 20,
+  },
+  sheetPinnedNote: {
+    color: CareerTheme.accent,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: Spacing.two,
   },
   deleteButton: {
     marginTop: Spacing.three,

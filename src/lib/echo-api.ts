@@ -40,8 +40,13 @@ export async function getEchoResponse(
   transcript: string,
   player: PlayerContext,
   history: PastDebrief[],
-): Promise<EchoApiResult<{ echoResponse: string }>> {
-  return postJson<{ echoResponse: string }>('/api/debrief-response', { turns: turnsSoFar, transcript, player, history });
+): Promise<EchoApiResult<{ echoResponse: string; nodeOffer?: { label: string } }>> {
+  return postJson<{ echoResponse: string; nodeOffer?: { label: string } }>('/api/debrief-response', {
+    turns: turnsSoFar,
+    transcript,
+    player,
+    history,
+  });
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<EchoApiResult<T>> {

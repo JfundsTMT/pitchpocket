@@ -80,6 +80,26 @@ function toPastDebriefArray(value: unknown): PastDebrief[] {
     }));
 }
 
+// Optional tool so Echo can emit a structured, pinnable label alongside its
+// natural-language offer — see CLAUDE.md ("Mind map" / nodes). The app
+// can't reliably turn free text into a "Pin this" button; this gives it
+// something concrete to act on without changing how Echo actually talks.
+const OFFER_NODE_TOOL: Anthropic.Tool = {
+  name: 'offer_node',
+  description:
+    "Call this only when you're offering to pin a genuine, player-authored discovery to their mind map, in the same turn as that offer in your reply. Do not call this for anything else — most replies never call it.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      label: {
+        type: 'string',
+        description: "Short label for the node, in the player's own words, e.g. \"Earlier release -> sharper vision\".",
+      },
+    },
+    required: ['label'],
+  },
+};
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -136,6 +156,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       max_tokens: 1024,
       system: buildEchoSystemPrompt(player, toPastDebriefArray(history)),
       messages,
+      tools: [OFFER_NODE_TOOL],
+      tool_choice: { type: 'auto' },
     });
 
     const textBlock = message.content.find((block) => block.type === 'text');
@@ -143,7 +165,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.status(502).json({ error: 'empty_response' });
       return;
     }
-    res.status(200).json({ echoResponse: textBlock.text });
+
+    const toolUseBlock = message.content.find(
+      (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use' && block.name === 'offer_node',
+    );
+    const label = toolUseBlock ? (toolUseBlock.input as { label?: unknown }).label : undefined;
+    const nodeOffer = typeof label === 'string' && label.trim().length > 0 ? { label: label.trim() } : undefined;
+
+    res.status(200).json({ echoResponse: textBlock.text, nodeOffer });
   } catch (error) {
     console.error('debrief-response failed', error);
     res.status(502).json({ error: 'echo_response_failed' });

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 
 import { clearAllDebriefs } from '@/lib/debrief-history';
 import { clearAllFixtures } from '@/lib/fixtures';
+import { clearAllMindMapNodes } from '@/lib/mind-map-nodes';
 import { clearPlayerProfile, loadPlayerProfile, savePlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 import { supabase } from '@/lib/supabase';
 import { clearAllTombstones } from '@/lib/sync-tombstones';
@@ -43,7 +44,13 @@ export function OnboardingGateProvider({ children }: { children: ReactNode }) {
       // career. The old career stays safe in the cloud under its account and
       // comes back via restore.
       resetOnboarding: async () => {
-        await Promise.all([clearPlayerProfile(), clearAllFixtures(), clearAllDebriefs(), clearAllTombstones()]);
+        await Promise.all([
+          clearPlayerProfile(),
+          clearAllFixtures(),
+          clearAllDebriefs(),
+          clearAllMindMapNodes(),
+          clearAllTombstones(),
+        ]);
         if (supabase) {
           await supabase.auth.signOut().catch(() => undefined);
         }

@@ -38,12 +38,25 @@ create table if not exists public.debriefs (
   deleted boolean not null default false
 );
 
+-- A node is only ever created from the player accepting one of Echo's
+-- offers (see CLAUDE.md "Mind map") — it is never written by Echo directly.
+create table if not exists public.mind_map_nodes (
+  id text primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  label text not null,
+  debrief_id text,
+  created_at timestamptz not null,
+  deleted boolean not null default false
+);
+
 create index if not exists fixtures_user_idx on public.fixtures (user_id);
 create index if not exists debriefs_user_idx on public.debriefs (user_id);
+create index if not exists mind_map_nodes_user_idx on public.mind_map_nodes (user_id);
 
 alter table public.player_profiles enable row level security;
 alter table public.fixtures enable row level security;
 alter table public.debriefs enable row level security;
+alter table public.mind_map_nodes enable row level security;
 
 create policy "own profile" on public.player_profiles
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
@@ -52,4 +65,7 @@ create policy "own fixtures" on public.fixtures
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 create policy "own debriefs" on public.debriefs
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create policy "own mind map nodes" on public.mind_map_nodes
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

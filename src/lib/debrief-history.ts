@@ -4,9 +4,19 @@ import { addTombstone } from '@/lib/sync-tombstones';
 
 const STORAGE_KEY = 'pitchpocket.debriefHistory.v1';
 
+export type NodeOfferStatus = 'pending' | 'accepted' | 'declined';
+
+export type NodeOffer = {
+  label: string;
+  status: NodeOfferStatus;
+};
+
 export type DebriefTurn = {
   transcript: string;
   echoResponse: string;
+  // Set when Echo's reply for this turn offered to pin a discovery — see
+  // CLAUDE.md ("Mind map"). Undefined means no offer was made this turn.
+  nodeOffer?: NodeOffer;
 };
 
 export type DebriefRecord = {
@@ -16,10 +26,20 @@ export type DebriefRecord = {
   createdAt: string;
 };
 
+function isNodeOffer(value: unknown): value is NodeOffer {
+  if (!value || typeof value !== 'object') return false;
+  const o = value as Record<string, unknown>;
+  return (
+    typeof o.label === 'string' &&
+    (o.status === 'pending' || o.status === 'accepted' || o.status === 'declined')
+  );
+}
+
 function isDebriefTurn(value: unknown): value is DebriefTurn {
   if (!value || typeof value !== 'object') return false;
   const t = value as Record<string, unknown>;
-  return typeof t.transcript === 'string' && typeof t.echoResponse === 'string';
+  if (typeof t.transcript !== 'string' || typeof t.echoResponse !== 'string') return false;
+  return t.nodeOffer === undefined || isNodeOffer(t.nodeOffer);
 }
 
 export async function loadDebriefHistory(): Promise<DebriefRecord[]> {
@@ -46,12 +66,13 @@ export async function createDebriefRecord(input: {
   fixtureId?: string;
   transcript: string;
   echoResponse: string;
+  nodeOffer?: NodeOffer;
 }): Promise<DebriefRecord> {
   const history = await loadDebriefHistory();
   const record: DebriefRecord = {
     id: generateId(),
     fixtureId: input.fixtureId,
-    turns: [{ transcript: input.transcript, echoResponse: input.echoResponse }],
+    turns: [{ transcript: input.transcript, echoResponse: input.echoResponse, nodeOffer: input.nodeOffer }],
     createdAt: new Date().toISOString(),
   };
   await writeJson(STORAGE_KEY, [...history, record]);
@@ -68,6 +89,31 @@ export async function appendDebriefTurn(recordId: string, turn: DebriefTurn): Pr
   const next = history.map((record) => {
     if (record.id !== recordId) return record;
     updated = { ...record, turns: [...record.turns, turn] };
+    return updated;
+  });
+  if (!updated) return null;
+  await writeJson(STORAGE_KEY, next);
+  requestPush();
+  return updated;
+}
+
+// Marks a specific turn's node offer as accepted/declined once the player
+// has actually responded to it — the offer itself was already saved with
+// the turn, this just records what happened to it.
+export async function setNodeOfferStatus(
+  recordId: string,
+  turnIndex: number,
+  status: 'accepted' | 'declined',
+): Promise<DebriefRecord | null> {
+  const history = await loadDebriefHistory();
+  let updated: DebriefRecord | null = null;
+  const next = history.map((record) => {
+    if (record.id !== recordId) return record;
+    const turn = record.turns[turnIndex];
+    if (!turn || !turn.nodeOffer) return record;
+    const turns = [...record.turns];
+    turns[turnIndex] = { ...turn, nodeOffer: { ...turn.nodeOffer, status } };
+    updated = { ...record, turns };
     return updated;
   });
   if (!updated) return null;

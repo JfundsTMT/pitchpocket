@@ -8,6 +8,7 @@ import { Spacing } from '@/constants/theme';
 import { useOnboardingGate } from '@/features/onboarding/onboarding-gate';
 import { clearAllDebriefs } from '@/lib/debrief-history';
 import { clearAllFixtures } from '@/lib/fixtures';
+import { clearAllMindMapNodes } from '@/lib/mind-map-nodes';
 import { isSyncConfigured, supabase } from '@/lib/supabase';
 import { clearAllTombstones } from '@/lib/sync-tombstones';
 import { pullCareerAfterRestore, syncNow } from '@/lib/sync';
@@ -138,7 +139,7 @@ export function AccountScreen() {
     // Signing into an account replaces whatever career is on this phone —
     // otherwise the local leftovers would union-push into the restored
     // account on the next sync.
-    await Promise.all([clearAllFixtures(), clearAllDebriefs(), clearAllTombstones()]);
+    await Promise.all([clearAllFixtures(), clearAllDebriefs(), clearAllMindMapNodes(), clearAllTombstones()]);
     const profile = await pullCareerAfterRestore();
     setBusy(false);
     if (profile) {
