@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Anthropic from '@anthropic-ai/sdk';
 
+import { CRISIS_RESPONSE, containsCrisisSignal } from '../lib/crisis-check.js';
 import { buildEchoSystemPrompt, type PastDebrief, type PlayerContext } from '../lib/echo-prompt.js';
 
 const anthropic = new Anthropic();
@@ -106,6 +107,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (!isPlayerContext(player)) {
     res.status(400).json({ error: 'missing_player_context' });
+    return;
+  }
+
+  // Non-negotiable per CLAUDE.md: checked before anything else, on every
+  // message (not just the first), and short-circuits the whole four-layer
+  // method with a fixed response if it fires.
+  if (await containsCrisisSignal(anthropic, transcript)) {
+    res.status(200).json({ echoResponse: CRISIS_RESPONSE });
     return;
   }
 
