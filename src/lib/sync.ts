@@ -1,5 +1,6 @@
 import { loadDebriefHistory, replaceAllDebriefs, type DebriefRecord, type DebriefTurn } from '@/lib/debrief-history';
 import { loadFixtures, replaceAllFixtures, type Fixture } from '@/lib/fixtures';
+import { isUnsetFlowRecipe, loadFlowRecipe, replaceFlowRecipe, type FlowRecipe } from '@/lib/flow-recipe';
 import { loadMindMapNodes, replaceAllMindMapNodes, type MindMapNode } from '@/lib/mind-map-nodes';
 import { loadPlayerProfile, restorePlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 import { supabase } from '@/lib/supabase';
@@ -34,6 +35,11 @@ type MindMapNodeRow = {
   created_at: string;
 };
 
+type FlowRecipeRow = {
+  items: FlowRecipe['items'];
+  updated_at: string;
+};
+
 let syncInFlight: Promise<{ changed: boolean }> | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -65,11 +71,12 @@ async function runSync(): Promise<{ changed: boolean }> {
     const userId = await ensureSignedIn();
     if (!userId) return { changed: false };
 
-    const [profile, localFixtures, localDebriefs, localNodes, tombstones] = await Promise.all([
+    const [profile, localFixtures, localDebriefs, localNodes, localRecipe, tombstones] = await Promise.all([
       loadPlayerProfile(),
       loadFixtures(),
       loadDebriefHistory(),
       loadMindMapNodes(),
+      loadFlowRecipe(),
       loadTombstones(),
     ]);
 
@@ -129,16 +136,26 @@ async function runSync(): Promise<{ changed: boolean }> {
         })),
       );
     }
+    // Never push an untouched local default over a real remote recipe on
+    // first launch, before the pull below has had a chance to bring the
+    // real one down.
+    if (!isUnsetFlowRecipe(localRecipe)) {
+      await supabase
+        .from('flow_recipes')
+        .upsert({ user_id: userId, items: localRecipe.items, updated_at: localRecipe.updatedAt });
+    }
 
     // 3. Pull what's live and union into local by id. Debrief records are
     //    NOT immutable anymore (a reply appends a turn), so unlike fixtures,
     //    a remote copy with more turns than the local one should win —
     //    otherwise a reply made on another device would be silently dropped.
-    const [{ data: remoteFixtures }, { data: remoteDebriefs }, { data: remoteNodes }] = await Promise.all([
-      supabase.from('fixtures').select('id, opponent, match_date, competition, created_at').eq('deleted', false),
-      supabase.from('debriefs').select('id, fixture_id, turns, created_at').eq('deleted', false),
-      supabase.from('mind_map_nodes').select('id, label, debrief_id, created_at').eq('deleted', false),
-    ]);
+    const [{ data: remoteFixtures }, { data: remoteDebriefs }, { data: remoteNodes }, { data: remoteRecipe }] =
+      await Promise.all([
+        supabase.from('fixtures').select('id, opponent, match_date, competition, created_at').eq('deleted', false),
+        supabase.from('debriefs').select('id, fixture_id, turns, created_at').eq('deleted', false),
+        supabase.from('mind_map_nodes').select('id, label, debrief_id, created_at').eq('deleted', false),
+        supabase.from('flow_recipes').select('items, updated_at').eq('user_id', userId).maybeSingle(),
+      ]);
 
     let changed = false;
     if (remoteFixtures) {
@@ -161,6 +178,14 @@ async function runSync(): Promise<{ changed: boolean }> {
         await replaceAllMindMapNodes(merged);
         changed = true;
       }
+    }
+    // Document semantics, not a record collection — last-write-wins by
+    // updatedAt, since a player editing the same recipe on two devices is a
+    // real conflict, not a growable/mergeable list like debrief turns.
+    const remote = remoteRecipe as FlowRecipeRow | null;
+    if (remote && remote.updated_at > localRecipe.updatedAt) {
+      await replaceFlowRecipe({ items: remote.items, updatedAt: remote.updated_at });
+      changed = true;
     }
     return { changed };
   } catch (error) {

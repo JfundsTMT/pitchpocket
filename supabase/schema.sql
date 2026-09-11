@@ -49,6 +49,17 @@ create table if not exists public.mind_map_nodes (
   deleted boolean not null default false
 );
 
+-- One row per player — a curated, player-editable document (add/rewrite/
+-- delete anything), not an append-only record collection like the tables
+-- above. AI-drafted items become part of it through the same save path as
+-- the player's own edits; there's no separate "pending AI suggestion" state
+-- server-side.
+create table if not exists public.flow_recipes (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  items jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists fixtures_user_idx on public.fixtures (user_id);
 create index if not exists debriefs_user_idx on public.debriefs (user_id);
 create index if not exists mind_map_nodes_user_idx on public.mind_map_nodes (user_id);
@@ -57,6 +68,7 @@ alter table public.player_profiles enable row level security;
 alter table public.fixtures enable row level security;
 alter table public.debriefs enable row level security;
 alter table public.mind_map_nodes enable row level security;
+alter table public.flow_recipes enable row level security;
 
 create policy "own profile" on public.player_profiles
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
@@ -68,4 +80,7 @@ create policy "own debriefs" on public.debriefs
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 create policy "own mind map nodes" on public.mind_map_nodes
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create policy "own flow recipe" on public.flow_recipes
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

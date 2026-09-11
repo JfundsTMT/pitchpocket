@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 
 import { clearAllDebriefs } from '@/lib/debrief-history';
 import { clearAllFixtures } from '@/lib/fixtures';
+import { clearFlowRecipe } from '@/lib/flow-recipe';
 import { clearAllMindMapNodes } from '@/lib/mind-map-nodes';
 import { clearPlayerProfile, loadPlayerProfile, savePlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 import { supabase } from '@/lib/supabase';
@@ -49,6 +50,7 @@ export function OnboardingGateProvider({ children }: { children: ReactNode }) {
           clearAllFixtures(),
           clearAllDebriefs(),
           clearAllMindMapNodes(),
+          clearFlowRecipe(),
           clearAllTombstones(),
         ]);
         if (supabase) {

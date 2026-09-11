@@ -49,6 +49,13 @@ export async function getEchoResponse(
   });
 }
 
+export async function synthesizeFlowRecipe(
+  player: PlayerContext,
+  history: PastDebrief[],
+): Promise<EchoApiResult<{ items: { label: string; evidence: string }[] }>> {
+  return postJson<{ items: { label: string; evidence: string }[] }>('/api/flow-recipe', { player, history });
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<EchoApiResult<T>> {
   const deviceId = await getDeviceId();
   const controller = new AbortController();

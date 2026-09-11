@@ -190,6 +190,15 @@ export default function HomeScreen() {
               accessibilityLabel="Debrief with Echo">
               <Text style={styles.heroButtonText}>DEBRIEF WITH ECHO</Text>
             </Pressable>
+            {upcomingFixture && !fixtureNeedingDebrief ? (
+              <Pressable
+                onPress={() => router.push('/pre-match-reset')}
+                style={styles.heroGhostButton}
+                accessibilityRole="button"
+                accessibilityLabel="Pre-match reset">
+                <Text style={styles.heroGhostButtonText}>PRE-MATCH RESET</Text>
+              </Pressable>
+            ) : null}
             {!nextFixture ? (
               <Link href="/add-fixture" asChild>
                 <Pressable style={styles.heroGhostButton} accessibilityRole="button" accessibilityLabel="Add a fixture">
@@ -287,6 +296,14 @@ export default function HomeScreen() {
                   <Text style={styles.hintKeyTextDark}>M</Text>
                 </View>
                 <Text style={styles.hintLabel}>Mind Map</Text>
+              </Pressable>
+            </Link>
+            <Link href="/flow-recipe" asChild>
+              <Pressable style={styles.hint} accessibilityRole="button" accessibilityLabel="Flow recipe">
+                <View style={[styles.hintKey, { backgroundColor: Hub.mintRow }]}>
+                  <Text style={styles.hintKeyTextDark}>R</Text>
+                </View>
+                <Text style={styles.hintLabel}>Recipe</Text>
               </Pressable>
             </Link>
             <Link href="/account" asChild>
