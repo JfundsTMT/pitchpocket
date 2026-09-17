@@ -30,7 +30,10 @@ function isPastDebrief(value: unknown): value is PastDebrief {
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
   return (
-    typeof record.date === 'string' && typeof record.transcript === 'string' && typeof record.echoResponse === 'string'
+    typeof record.date === 'string' &&
+    typeof record.summary === 'string' &&
+    Array.isArray(record.signals) &&
+    record.signals.every((s) => typeof s === 'string')
   );
 }
 
@@ -64,9 +67,11 @@ function toConversationTurns(value: unknown): ConversationTurn[] {
 // dependency the whole feature should break on. The cap and truncation are
 // enforced here too, not just client-side: the device-id header is soft
 // abuse-prevention, not auth, so the prompt budget can't be trusted to the
-// caller.
-const HISTORY_LIMIT = 5;
-const HISTORY_FIELD_CHAR_LIMIT = 600;
+// caller. Summaries are compact, so this can afford a much wider window
+// than the old raw-transcript approach could — see debrief-history.ts.
+const HISTORY_LIMIT = 30;
+const SUMMARY_CHAR_LIMIT = 400;
+const SIGNALS_LIMIT = 6;
 
 function toPastDebriefArray(value: unknown): PastDebrief[] {
   if (!Array.isArray(value)) return [];
@@ -75,8 +80,8 @@ function toPastDebriefArray(value: unknown): PastDebrief[] {
     .slice(-HISTORY_LIMIT)
     .map((d) => ({
       date: d.date.slice(0, 64),
-      transcript: d.transcript.slice(0, HISTORY_FIELD_CHAR_LIMIT),
-      echoResponse: d.echoResponse.slice(0, HISTORY_FIELD_CHAR_LIMIT),
+      summary: d.summary.slice(0, SUMMARY_CHAR_LIMIT),
+      signals: d.signals.slice(0, SIGNALS_LIMIT).map((s) => s.slice(0, 100)),
     }));
 }
 

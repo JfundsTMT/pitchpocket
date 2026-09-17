@@ -20,12 +20,13 @@ import {
   buildRecentDebriefContext,
   createDebriefRecord,
   loadDebriefHistory,
+  saveDebriefSummary,
   setNodeOfferStatus,
   type DebriefTurn,
   type NodeOffer,
   type PastDebrief,
 } from '@/lib/debrief-history';
-import { getEchoResponse, transcribeAudio, type EchoApiError } from '@/lib/echo-api';
+import { getEchoResponse, summarizeDebrief, transcribeAudio, type EchoApiError } from '@/lib/echo-api';
 import { loadFixtures, type Fixture } from '@/lib/fixtures';
 import { createMindMapNode } from '@/lib/mind-map-nodes';
 import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
@@ -87,17 +88,32 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
 
   // Save the moment each exchange completes, so nothing is lost if the
   // player navigates away mid-conversation — the first exchange creates the
-  // record, every reply after that appends a turn to it.
+  // record, every reply after that appends a turn to it. Then regenerate
+  // the running summary+signals from the full conversation so far — fire
+  // and forget, never blocking the UI, since a missing summary just falls
+  // back to raw transcript elsewhere (see buildRecentDebriefContext).
   useEffect(() => {
     if (state.phase !== 'done' || turns.length === 0) return;
     const latestTurn = turns[turns.length - 1];
-    if (!recordId.current) {
-      createDebriefRecord({ fixtureId, ...latestTurn }).then((record) => {
-        recordId.current = record.id;
-      });
-    } else {
-      appendDebriefTurn(recordId.current, latestTurn);
+    const allTurnsSoFar = turns;
+
+    async function persistAndSummarize() {
+      let id = recordId.current;
+      if (!id) {
+        const record = await createDebriefRecord({ fixtureId, ...latestTurn });
+        id = record.id;
+        recordId.current = id;
+      } else {
+        await appendDebriefTurn(id, latestTurn);
+      }
+      if (!profile) return;
+      const result = await summarizeDebrief(allTurnsSoFar, resolvePlayerContext(profile));
+      if (result.ok) {
+        await saveDebriefSummary(id, { text: result.data.summary, signals: result.data.signals });
+      }
     }
+
+    persistAndSummarize().catch((error) => console.warn('Debrief save/summarize failed', error));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turns.length, state.phase]);
 

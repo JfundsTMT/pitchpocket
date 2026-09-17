@@ -26,6 +26,7 @@ type DebriefRow = {
   fixture_id: string | null;
   turns: DebriefTurn[];
   created_at: string;
+  summary: DebriefRecord['summary'] | null;
 };
 
 type MindMapNodeRow = {
@@ -122,6 +123,7 @@ async function runSync(): Promise<{ changed: boolean }> {
           fixture_id: r.fixtureId ?? null,
           turns: r.turns,
           created_at: r.createdAt,
+          summary: r.summary ?? null,
         })),
       );
     }
@@ -152,7 +154,7 @@ async function runSync(): Promise<{ changed: boolean }> {
     const [{ data: remoteFixtures }, { data: remoteDebriefs }, { data: remoteNodes }, { data: remoteRecipe }] =
       await Promise.all([
         supabase.from('fixtures').select('id, opponent, match_date, competition, created_at').eq('deleted', false),
-        supabase.from('debriefs').select('id, fixture_id, turns, created_at').eq('deleted', false),
+        supabase.from('debriefs').select('id, fixture_id, turns, created_at, summary').eq('deleted', false),
         supabase.from('mind_map_nodes').select('id, label, debrief_id, created_at').eq('deleted', false),
         supabase.from('flow_recipes').select('items, updated_at').eq('user_id', userId).maybeSingle(),
       ]);
@@ -272,6 +274,7 @@ function debriefFromRow(row: DebriefRow): DebriefRecord {
     fixtureId: row.fixture_id ?? undefined,
     turns: row.turns,
     createdAt: row.created_at,
+    summary: row.summary ?? undefined,
   };
 }
 

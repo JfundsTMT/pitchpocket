@@ -56,6 +56,17 @@ export async function synthesizeFlowRecipe(
   return postJson<{ items: { label: string; evidence: string }[] }>('/api/flow-recipe', { player, history });
 }
 
+// Regenerates the running summary+signals for a debrief conversation.
+// Called after every turn, not just on "Finish" — fire-and-forget from the
+// UI's perspective, same as sync: never on the critical path, failures are
+// swallowed since a missing summary just falls back to raw transcript.
+export async function summarizeDebrief(
+  turns: DebriefTurn[],
+  player: PlayerContext,
+): Promise<EchoApiResult<{ summary: string; signals: string[] }>> {
+  return postJson<{ summary: string; signals: string[] }>('/api/summarize-debrief', { turns, player });
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<EchoApiResult<T>> {
   const deviceId = await getDeviceId();
   const controller = new AbortController();

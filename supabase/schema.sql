@@ -29,13 +29,18 @@ create table if not exists public.fixtures (
 -- turns: [{ "transcript": "...", "echoResponse": "..." }, ...] — a debrief is
 -- a conversation, not a single exchange, so it's an ordered array rather
 -- than flat transcript/echo_response columns.
+-- summary: { "text": "...", "signals": ["...", ...] } — a compact,
+-- AI-generated distillation regenerated after every turn, nullable since
+-- older debriefs (or a failed summarize call) may not have one yet; the
+-- client falls back to a raw-transcript excerpt when it's absent.
 create table if not exists public.debriefs (
   id text primary key,
   user_id uuid not null references auth.users (id) on delete cascade,
   fixture_id text,
   turns jsonb not null,
   created_at timestamptz not null,
-  deleted boolean not null default false
+  deleted boolean not null default false,
+  summary jsonb
 );
 
 -- A node is only ever created from the player accepting one of Echo's

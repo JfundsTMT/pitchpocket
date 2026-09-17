@@ -9,11 +9,13 @@ const anthropic = new Anthropic();
 // the founder explicitly decides otherwise.
 const CHAT_MODEL = process.env.ANTHROPIC_CHAT_MODEL ?? 'claude-opus-4-8';
 
-// Synthesis reads more history than a debrief reply does — the whole point
-// is patterns across matches — but still bounded so the prompt can't grow
-// without limit.
-const HISTORY_LIMIT = 10;
-const HISTORY_FIELD_CHAR_LIMIT = 800;
+// Synthesis reads a wide history — the whole point is patterns across a
+// season — but still bounded so the prompt can't grow without limit.
+// Summaries are compact enough that this can cover far more debriefs than
+// the old raw-transcript approach could.
+const HISTORY_LIMIT = 30;
+const SUMMARY_CHAR_LIMIT = 400;
+const SIGNALS_LIMIT = 6;
 
 const SYSTEM_PROMPT = `You are the intelligence behind PitchPocket, drafting a player's Flow Recipe: the personal conditions that precede THEIR best football, drawn only from their own debriefs.
 
@@ -64,7 +66,10 @@ function isPastDebrief(value: unknown): value is PastDebrief {
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
   return (
-    typeof record.date === 'string' && typeof record.transcript === 'string' && typeof record.echoResponse === 'string'
+    typeof record.date === 'string' &&
+    typeof record.summary === 'string' &&
+    Array.isArray(record.signals) &&
+    record.signals.every((s) => typeof s === 'string')
   );
 }
 
@@ -75,8 +80,8 @@ function toPastDebriefArray(value: unknown): PastDebrief[] {
     .slice(-HISTORY_LIMIT)
     .map((d) => ({
       date: d.date.slice(0, 64),
-      transcript: d.transcript.slice(0, HISTORY_FIELD_CHAR_LIMIT),
-      echoResponse: d.echoResponse.slice(0, HISTORY_FIELD_CHAR_LIMIT),
+      summary: d.summary.slice(0, SUMMARY_CHAR_LIMIT),
+      signals: d.signals.slice(0, SIGNALS_LIMIT).map((s) => s.slice(0, 100)),
     }));
 }
 
@@ -114,7 +119,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const historyText = debriefs
-    .map((d, i) => `Debrief ${i + 1} (${new Date(d.date).toDateString()}):\nPlayer: "${d.transcript}"`)
+    .map((d, i) => {
+      const signalsLine = d.signals.length > 0 ? `\nSignals: ${d.signals.join(', ')}` : '';
+      return `Debrief ${i + 1} (${new Date(d.date).toDateString()}): ${d.summary}${signalsLine}`;
+    })
     .join('\n\n');
 
   try {
