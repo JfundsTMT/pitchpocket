@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Anthropic from '@anthropic-ai/sdk';
 
-import type { PastDebrief, PlayerContext } from '../lib/echo-prompt.js';
+import { getHistoryDepth, type PastDebrief, type PlayerContext } from '../lib/echo-prompt.js';
 
 const anthropic = new Anthropic();
 
@@ -125,6 +125,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     })
     .join('\n\n');
 
+  // Same reasoning as the debrief prompt's history tiers: a recipe drawn
+  // from 2 debriefs should read very differently from one drawn from a real
+  // season, or every early recipe overclaims structure that isn't there yet.
+  const depth = getHistoryDepth(debriefs);
+  const depthInstruction =
+    depth === 'thin'
+      ? "You only have a handful of debriefs to draw from — be especially conservative. A short or empty recipe is far better than inventing structure from 2-4 data points; only include something a condition was clearly connected to more than once."
+      : depth === 'building'
+        ? 'You have a growing but still moderate body of debriefs — items are fine when a condition has shown up more than once, but stay cautious about anything mentioned only a single time.'
+        : "You have a real season's worth of debriefs — you can draw confidently on conditions that have shown up repeatedly across many of them.";
+
   try {
     const message = await anthropic.messages.create({
       model: CHAT_MODEL,
@@ -135,7 +146,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       messages: [
         {
           role: 'user',
-          content: `Player profile: ${player.positionLabel}, ${player.level}, archetype "${player.archetypeName}". Self-reported strength: ${player.biggestStrength}. Self-reported weakness: ${player.greatestWeakness}.\n\nTheir recent debriefs, oldest first:\n\n${historyText}\n\nDraft their Flow Recipe from this evidence only.`,
+          content: `Player profile: ${player.positionLabel}, ${player.level}, archetype "${player.archetypeName}". Self-reported strength: ${player.biggestStrength}. Self-reported weakness: ${player.greatestWeakness}.\n\n${depthInstruction}\n\nTheir recent debriefs, oldest first:\n\n${historyText}\n\nDraft their Flow Recipe from this evidence only.`,
         },
       ],
     });
