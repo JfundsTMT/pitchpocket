@@ -54,6 +54,21 @@ create table if not exists public.mind_map_nodes (
   deleted boolean not null default false
 );
 
+-- A focus block is a second, separate commitment beyond pinning a node —
+-- the player choosing to actively train on an insight they already
+-- recognised, not something created automatically. No delete: a dropped
+-- focus stays as a record of what was tried, only its status changes.
+create table if not exists public.focus_blocks (
+  id text primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  node_id text not null,
+  label text not null,
+  plan jsonb not null,
+  status text not null default 'active',
+  created_at timestamptz not null,
+  deleted boolean not null default false
+);
+
 -- One row per player — a curated, player-editable document (add/rewrite/
 -- delete anything), not an append-only record collection like the tables
 -- above. AI-drafted items become part of it through the same save path as
@@ -68,11 +83,13 @@ create table if not exists public.flow_recipes (
 create index if not exists fixtures_user_idx on public.fixtures (user_id);
 create index if not exists debriefs_user_idx on public.debriefs (user_id);
 create index if not exists mind_map_nodes_user_idx on public.mind_map_nodes (user_id);
+create index if not exists focus_blocks_user_idx on public.focus_blocks (user_id);
 
 alter table public.player_profiles enable row level security;
 alter table public.fixtures enable row level security;
 alter table public.debriefs enable row level security;
 alter table public.mind_map_nodes enable row level security;
+alter table public.focus_blocks enable row level security;
 alter table public.flow_recipes enable row level security;
 
 create policy "own profile" on public.player_profiles
@@ -85,6 +102,9 @@ create policy "own debriefs" on public.debriefs
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 create policy "own mind map nodes" on public.mind_map_nodes
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create policy "own focus blocks" on public.focus_blocks
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 create policy "own flow recipe" on public.flow_recipes

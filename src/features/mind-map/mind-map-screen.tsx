@@ -5,9 +5,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CareerTheme } from '@/constants/career-theme';
 import { Spacing } from '@/constants/theme';
-import { deleteDebriefRecord, loadDebriefHistory, type DebriefRecord } from '@/lib/debrief-history';
+import { resolvePlayerContext } from '@/features/debrief/resolve-player-context';
+import { deleteDebriefRecord, loadDebriefHistory, type DebriefRecord, type DebriefTurn } from '@/lib/debrief-history';
+import { draftFocusPlan } from '@/lib/echo-api';
 import { loadFixtures, type Fixture } from '@/lib/fixtures';
+import { createFocusBlock, loadFocusBlocks, setFocusBlockStatus, type FocusBlock, type FocusBlockStatus } from '@/lib/focus-blocks';
 import { deleteMindMapNode, loadMindMapNodes, type MindMapNode } from '@/lib/mind-map-nodes';
+import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 
 const NODE_SIZE = 68;
 const BASE_RADIUS = 60;
@@ -22,17 +26,21 @@ export function MindMapScreen() {
   const [nodes, setNodes] = useState<MindMapNode[]>([]);
   const [history, setHistory] = useState<DebriefRecord[]>([]);
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
+  const [focusBlocks, setFocusBlocks] = useState<FocusBlock[]>([]);
+  const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [selectedDebriefId, setSelectedDebriefId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
-      Promise.all([loadMindMapNodes(), loadDebriefHistory(), loadFixtures()]).then(
-        ([loadedNodes, loadedHistory, loadedFixtures]) => {
+      Promise.all([loadMindMapNodes(), loadDebriefHistory(), loadFixtures(), loadFocusBlocks(), loadPlayerProfile()]).then(
+        ([loadedNodes, loadedHistory, loadedFixtures, loadedFocusBlocks, loadedProfile]) => {
           setNodes(loadedNodes);
           setHistory(loadedHistory);
           setFixtures(loadedFixtures);
+          setFocusBlocks(loadedFocusBlocks);
+          setProfile(loadedProfile);
           setLoaded(true);
         },
       );
@@ -65,6 +73,39 @@ export function MindMapScreen() {
     await deleteMindMapNode(node.id);
     setNodes((current) => current.filter((n) => n.id !== node.id));
     setSelectedNodeId(null);
+  }
+
+  // The turn whose accepted offer produced this node — that's where the
+  // real specificity for a focus plan lives, not the bare node label.
+  function originatingTurn(node: MindMapNode): DebriefTurn | undefined {
+    if (!node.debriefId) return undefined;
+    const record = history.find((r) => r.id === node.debriefId);
+    return record?.turns.find((t) => t.nodeOffer?.status === 'accepted' && t.nodeOffer.label === node.label);
+  }
+
+  // Second entry point for starting a focus block (the first is live in the
+  // debrief, right after pinning) — revisiting a pinned insight later and
+  // deciding to actually train on it is just as valid a moment.
+  async function handleStartFocusBlock(node: MindMapNode): Promise<{ ok: true } | { ok: false; message: string }> {
+    if (!profile) return { ok: false, message: 'Player profile not loaded yet — try again.' };
+    const turn = originatingTurn(node);
+    const result = await draftFocusPlan(resolvePlayerContext(profile), node.label, {
+      transcript: turn?.transcript ?? '',
+      echoResponse: turn?.echoResponse ?? '',
+    });
+    if (!result.ok || result.data.plan.length === 0) {
+      return { ok: false, message: result.ok ? "Couldn't draft a plan from that — try again?" : result.error.message };
+    }
+    const block = await createFocusBlock({ nodeId: node.id, label: node.label, plan: result.data.plan });
+    setFocusBlocks((current) => [...current, block]);
+    return { ok: true };
+  }
+
+  async function handleSetFocusStatus(blockId: string, status: FocusBlockStatus) {
+    const updated = await setFocusBlockStatus(blockId, status);
+    if (updated) {
+      setFocusBlocks((current) => current.map((b) => (b.id === blockId ? updated : b)));
+    }
   }
 
   if (!loaded) {
@@ -180,8 +221,11 @@ export function MindMapScreen() {
       {selectedNode ? (
         <NodeDetailSheet
           node={selectedNode}
+          focusBlock={focusBlocks.find((b) => b.nodeId === selectedNode.id)}
           onClose={() => setSelectedNodeId(null)}
           onDelete={() => handleDeleteNode(selectedNode)}
+          onStartFocus={handleStartFocusBlock}
+          onSetFocusStatus={handleSetFocusStatus}
         />
       ) : null}
     </View>
@@ -254,12 +298,37 @@ function ConnectorLine({ from, to }: { from: { x: number; y: number }; to: { x: 
   );
 }
 
-function NodeDetailSheet({ node, onClose, onDelete }: { node: MindMapNode; onClose: () => void; onDelete: () => void }) {
+function NodeDetailSheet({
+  node,
+  focusBlock,
+  onClose,
+  onDelete,
+  onStartFocus,
+  onSetFocusStatus,
+}: {
+  node: MindMapNode;
+  focusBlock?: FocusBlock;
+  onClose: () => void;
+  onDelete: () => void;
+  onStartFocus: (node: MindMapNode) => Promise<{ ok: true } | { ok: false; message: string }>;
+  onSetFocusStatus: (blockId: string, status: FocusBlockStatus) => void;
+}) {
+  const [drafting, setDrafting] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+
   function confirmDelete() {
     Alert.alert('Remove this insight', "This can't be undone.", [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: onDelete },
     ]);
+  }
+
+  async function handleStart() {
+    setDrafting(true);
+    setDraftError(null);
+    const result = await onStartFocus(node);
+    setDrafting(false);
+    if (!result.ok) setDraftError(result.message);
   }
 
   return (
@@ -271,6 +340,51 @@ function NodeDetailSheet({ node, onClose, onDelete }: { node: MindMapNode; onClo
         <Text style={styles.sheetOpponent}>
           {new Date(node.createdAt).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
         </Text>
+
+        {focusBlock ? (
+          <View style={styles.focusSection}>
+            <Text style={styles.sheetLabel}>
+              {focusBlock.status === 'active' ? 'ACTIVE FOCUS' : focusBlock.status === 'eased' ? 'FOCUS · EASED' : 'FOCUS · DROPPED'}
+            </Text>
+            {focusBlock.plan.map((line, i) => (
+              <Text key={i} style={styles.sheetBody}>
+                {'•'} {line}
+              </Text>
+            ))}
+            {focusBlock.status === 'active' ? (
+              <View style={styles.focusActions}>
+                <Pressable
+                  onPress={() => onSetFocusStatus(focusBlock.id, 'eased')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Mark focus as eased">
+                  <Text style={styles.focusActionText}>Mark as eased</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onSetFocusStatus(focusBlock.id, 'dropped')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Drop this focus">
+                  <Text style={styles.focusActionText}>Drop</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+        ) : drafting ? (
+          <View style={styles.focusSection}>
+            <ActivityIndicator color={CareerTheme.accent} />
+          </View>
+        ) : (
+          <View style={styles.focusSection}>
+            {draftError ? <Text style={styles.focusErrorText}>{draftError}</Text> : null}
+            <Pressable
+              onPress={handleStart}
+              style={styles.startFocusButton}
+              accessibilityRole="button"
+              accessibilityLabel="Start training plan">
+              <Text style={styles.startFocusButtonText}>Start training plan</Text>
+            </Pressable>
+          </View>
+        )}
+
         <Pressable
           onPress={confirmDelete}
           style={styles.deleteButton}
@@ -518,6 +632,40 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginTop: Spacing.two,
+  },
+  focusSection: {
+    marginTop: Spacing.three,
+    paddingTop: Spacing.three,
+    borderTopWidth: 1,
+    borderTopColor: CareerTheme.border,
+    gap: Spacing.one,
+  },
+  focusActions: {
+    flexDirection: 'row',
+    gap: Spacing.four,
+    marginTop: Spacing.two,
+  },
+  focusActionText: {
+    color: CareerTheme.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  focusErrorText: {
+    color: '#E5484D',
+    fontSize: 13,
+    marginBottom: Spacing.one,
+  },
+  startFocusButton: {
+    borderWidth: 1,
+    borderColor: CareerTheme.accent,
+    borderRadius: 8,
+    paddingVertical: Spacing.two,
+    alignItems: 'center',
+  },
+  startFocusButtonText: {
+    color: CareerTheme.accent,
+    fontSize: 14,
+    fontWeight: '700',
   },
   deleteButton: {
     marginTop: Spacing.three,

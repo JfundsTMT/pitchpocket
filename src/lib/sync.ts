@@ -1,6 +1,7 @@
 import { loadDebriefHistory, replaceAllDebriefs, type DebriefRecord, type DebriefTurn } from '@/lib/debrief-history';
 import { loadFixtures, replaceAllFixtures, type Fixture } from '@/lib/fixtures';
 import { isUnsetFlowRecipe, loadFlowRecipe, replaceFlowRecipe, type FlowRecipe } from '@/lib/flow-recipe';
+import { loadFocusBlocks, replaceAllFocusBlocks, type FocusBlock } from '@/lib/focus-blocks';
 import { loadMindMapNodes, replaceAllMindMapNodes, type MindMapNode } from '@/lib/mind-map-nodes';
 import { loadPlayerProfile, restorePlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 import { supabase } from '@/lib/supabase';
@@ -33,6 +34,15 @@ type MindMapNodeRow = {
   id: string;
   label: string;
   debrief_id: string | null;
+  created_at: string;
+};
+
+type FocusBlockRow = {
+  id: string;
+  node_id: string;
+  label: string;
+  plan: string[];
+  status: FocusBlock['status'];
   created_at: string;
 };
 
@@ -72,11 +82,12 @@ async function runSync(): Promise<{ changed: boolean }> {
     const userId = await ensureSignedIn();
     if (!userId) return { changed: false };
 
-    const [profile, localFixtures, localDebriefs, localNodes, localRecipe, tombstones] = await Promise.all([
+    const [profile, localFixtures, localDebriefs, localNodes, localFocusBlocks, localRecipe, tombstones] = await Promise.all([
       loadPlayerProfile(),
       loadFixtures(),
       loadDebriefHistory(),
       loadMindMapNodes(),
+      loadFocusBlocks(),
       loadFlowRecipe(),
       loadTombstones(),
     ]);
@@ -138,6 +149,19 @@ async function runSync(): Promise<{ changed: boolean }> {
         })),
       );
     }
+    if (localFocusBlocks.length > 0) {
+      await supabase.from('focus_blocks').upsert(
+        localFocusBlocks.map((b) => ({
+          id: b.id,
+          user_id: userId,
+          node_id: b.nodeId,
+          label: b.label,
+          plan: b.plan,
+          status: b.status,
+          created_at: b.createdAt,
+        })),
+      );
+    }
     // Never push an untouched local default over a real remote recipe on
     // first launch, before the pull below has had a chance to bring the
     // real one down.
@@ -151,11 +175,12 @@ async function runSync(): Promise<{ changed: boolean }> {
     //    NOT immutable anymore (a reply appends a turn), so unlike fixtures,
     //    a remote copy with more turns than the local one should win —
     //    otherwise a reply made on another device would be silently dropped.
-    const [{ data: remoteFixtures }, { data: remoteDebriefs }, { data: remoteNodes }, { data: remoteRecipe }] =
+    const [{ data: remoteFixtures }, { data: remoteDebriefs }, { data: remoteNodes }, { data: remoteFocusBlocks }, { data: remoteRecipe }] =
       await Promise.all([
         supabase.from('fixtures').select('id, opponent, match_date, competition, created_at').eq('deleted', false),
         supabase.from('debriefs').select('id, fixture_id, turns, created_at, summary').eq('deleted', false),
         supabase.from('mind_map_nodes').select('id, label, debrief_id, created_at').eq('deleted', false),
+        supabase.from('focus_blocks').select('id, node_id, label, plan, status, created_at').eq('deleted', false),
         supabase.from('flow_recipes').select('items, updated_at').eq('user_id', userId).maybeSingle(),
       ]);
 
@@ -178,6 +203,13 @@ async function runSync(): Promise<{ changed: boolean }> {
       const merged = mergeById(localNodes, (remoteNodes as MindMapNodeRow[]).map(nodeFromRow));
       if (merged.length !== localNodes.length) {
         await replaceAllMindMapNodes(merged);
+        changed = true;
+      }
+    }
+    if (remoteFocusBlocks) {
+      const merged = mergeFocusBlocks(localFocusBlocks, (remoteFocusBlocks as FocusBlockRow[]).map(focusBlockFromRow));
+      if (JSON.stringify(merged) !== JSON.stringify(localFocusBlocks)) {
+        await replaceAllFocusBlocks(merged);
         changed = true;
       }
     }
@@ -258,6 +290,22 @@ function mergeDebriefs(local: DebriefRecord[], remote: DebriefRecord[]): Debrief
   return [...byId.values()];
 }
 
+// Focus blocks mutate in one direction only (active -> eased/dropped, never
+// back), so unlike the plain union of mergeById, a terminal status from
+// either side wins over a lingering "active" from the other — that's
+// always the more complete picture of what actually happened.
+function mergeFocusBlocks(local: FocusBlock[], remote: FocusBlock[]): FocusBlock[] {
+  const byId = new Map<string, FocusBlock>();
+  for (const block of local) byId.set(block.id, block);
+  for (const block of remote) {
+    const existing = byId.get(block.id);
+    if (!existing || (existing.status === 'active' && block.status !== 'active')) {
+      byId.set(block.id, block);
+    }
+  }
+  return [...byId.values()];
+}
+
 function fixtureFromRow(row: FixtureRow): Fixture {
   return {
     id: row.id,
@@ -283,6 +331,17 @@ function nodeFromRow(row: MindMapNodeRow): MindMapNode {
     id: row.id,
     label: row.label,
     debriefId: row.debrief_id ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+function focusBlockFromRow(row: FocusBlockRow): FocusBlock {
+  return {
+    id: row.id,
+    nodeId: row.node_id,
+    label: row.label,
+    plan: row.plan,
+    status: row.status,
     createdAt: row.created_at,
   };
 }

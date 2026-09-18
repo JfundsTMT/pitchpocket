@@ -26,7 +26,8 @@ import {
   type NodeOffer,
   type PastDebrief,
 } from '@/lib/debrief-history';
-import { getEchoResponse, summarizeDebrief, transcribeAudio, type EchoApiError } from '@/lib/echo-api';
+import { draftFocusPlan, getEchoResponse, summarizeDebrief, transcribeAudio, type EchoApiError } from '@/lib/echo-api';
+import { createFocusBlock } from '@/lib/focus-blocks';
 import { loadFixtures, type Fixture } from '@/lib/fixtures';
 import { createMindMapNode } from '@/lib/mind-map-nodes';
 import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
@@ -60,11 +61,23 @@ type DebriefScreenProps = {
   fixtureId?: string;
 };
 
+// A second, separate commitment beyond pinning a node — pinning means "this
+// is real," starting a focus block means "I'm actively going to work on
+// it." Keyed by turn index; only exists in-session (not persisted on the
+// turn itself) since the FocusBlock record it produces is the real artifact.
+type FocusPromptState =
+  | { phase: 'offering'; nodeId: string }
+  | { phase: 'drafting'; nodeId: string }
+  | { phase: 'error'; nodeId: string; message: string }
+  | { phase: 'started'; plan: string[] }
+  | { phase: 'skipped' };
+
 export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [pastDebriefs, setPastDebriefs] = useState<PastDebrief[]>([]);
   const [fixture, setFixture] = useState<Fixture | null>(null);
   const [turns, setTurns] = useState<DebriefTurn[]>([]);
+  const [focusPrompts, setFocusPrompts] = useState<Record<number, FocusPromptState>>({});
   const [draft, setDraft] = useState('');
   const [state, setState] = useState<ScreenState>({ phase: 'loading_profile' });
   const recorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
@@ -227,13 +240,14 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   async function handlePinNode(turnIndex: number) {
     const turn = turns[turnIndex];
     if (!turn?.nodeOffer) return;
-    await createMindMapNode({ label: turn.nodeOffer.label, debriefId: recordId.current ?? undefined });
+    const node = await createMindMapNode({ label: turn.nodeOffer.label, debriefId: recordId.current ?? undefined });
     if (recordId.current) {
       await setNodeOfferStatus(recordId.current, turnIndex, 'accepted');
     }
     setTurns((current) =>
       current.map((t, i) => (i === turnIndex && t.nodeOffer ? { ...t, nodeOffer: { ...t.nodeOffer, status: 'accepted' } } : t)),
     );
+    setFocusPrompts((current) => ({ ...current, [turnIndex]: { phase: 'offering', nodeId: node.id } }));
   }
 
   async function handleSkipNode(turnIndex: number) {
@@ -243,6 +257,41 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
     setTurns((current) =>
       current.map((t, i) => (i === turnIndex && t.nodeOffer ? { ...t, nodeOffer: { ...t.nodeOffer, status: 'declined' } } : t)),
     );
+  }
+
+  // The player's second, separate commit: drafting and saving an actual
+  // focus block from the insight they already pinned. Errors surface
+  // in-place with a retry — this is a real network call, same bar as the
+  // rest of the debrief pipeline.
+  async function handleStartFocusBlock(turnIndex: number) {
+    const promptState = focusPrompts[turnIndex];
+    const turn = turns[turnIndex];
+    if (!promptState || (promptState.phase !== 'offering' && promptState.phase !== 'error') || !turn?.nodeOffer || !profile) {
+      return;
+    }
+    const { nodeId } = promptState;
+    setFocusPrompts((current) => ({ ...current, [turnIndex]: { phase: 'drafting', nodeId } }));
+    const result = await draftFocusPlan(resolvePlayerContext(profile), turn.nodeOffer.label, {
+      transcript: turn.transcript,
+      echoResponse: turn.echoResponse,
+    });
+    if (!result.ok || result.data.plan.length === 0) {
+      setFocusPrompts((current) => ({
+        ...current,
+        [turnIndex]: {
+          phase: 'error',
+          nodeId,
+          message: result.ok ? "Couldn't draft a plan from that — try again?" : result.error.message,
+        },
+      }));
+      return;
+    }
+    await createFocusBlock({ nodeId, label: turn.nodeOffer.label, plan: result.data.plan });
+    setFocusPrompts((current) => ({ ...current, [turnIndex]: { phase: 'started', plan: result.data.plan } }));
+  }
+
+  function handleSkipFocusBlock(turnIndex: number) {
+    setFocusPrompts((current) => ({ ...current, [turnIndex]: { phase: 'skipped' } }));
   }
 
   return (
@@ -275,7 +324,14 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
             ) : null}
 
             {turns.length > 0 ? (
-              <ConversationThread turns={turns} onPinNode={handlePinNode} onSkipNode={handleSkipNode} />
+              <ConversationThread
+                turns={turns}
+                focusPrompts={focusPrompts}
+                onPinNode={handlePinNode}
+                onSkipNode={handleSkipNode}
+                onStartFocus={handleStartFocusBlock}
+                onSkipFocus={handleSkipFocusBlock}
+              />
             ) : null}
 
             {renderBody(state, {
@@ -426,12 +482,18 @@ function Composer({ draft, onChangeDraft, onStartRecording, onSend }: BodyHandle
 
 function ConversationThread({
   turns,
+  focusPrompts,
   onPinNode,
   onSkipNode,
+  onStartFocus,
+  onSkipFocus,
 }: {
   turns: DebriefTurn[];
+  focusPrompts: Record<number, FocusPromptState>;
   onPinNode: (turnIndex: number) => void;
   onSkipNode: (turnIndex: number) => void;
+  onStartFocus: (turnIndex: number) => void;
+  onSkipFocus: (turnIndex: number) => void;
 }) {
   return (
     <ThemedView style={styles.thread}>
@@ -458,12 +520,87 @@ function ConversationThread({
               onSkip={() => onSkipNode(index)}
             />
           ) : turn.nodeOffer?.status === 'accepted' ? (
-            <ThemedText type="small" themeColor="textSecondary" style={styles.pinnedLabel}>
-              Pinned to your mind map
-            </ThemedText>
+            <>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.pinnedLabel}>
+                Pinned to your mind map
+              </ThemedText>
+              {focusPrompts[index] ? (
+                <FocusBlockPrompt
+                  state={focusPrompts[index]}
+                  onStart={() => onStartFocus(index)}
+                  onSkip={() => onSkipFocus(index)}
+                />
+              ) : null}
+            </>
           ) : null}
         </ThemedView>
       ))}
+    </ThemedView>
+  );
+}
+
+function FocusBlockPrompt({
+  state,
+  onStart,
+  onSkip,
+}: {
+  state: FocusPromptState;
+  onStart: () => void;
+  onSkip: () => void;
+}) {
+  const theme = useTheme();
+
+  if (state.phase === 'skipped') return null;
+
+  if (state.phase === 'drafting') {
+    return (
+      <ThemedView type="backgroundElement" style={styles.focusCard}>
+        <ActivityIndicator />
+      </ThemedView>
+    );
+  }
+
+  if (state.phase === 'started') {
+    return (
+      <ThemedView type="backgroundSelected" style={styles.focusCard}>
+        <ThemedText type="smallBold">Added to your focus</ThemedText>
+        {state.plan.map((line, i) => (
+          <ThemedText key={i} type="small" style={styles.focusLine}>
+            {'•'} {line}
+          </ThemedText>
+        ))}
+      </ThemedView>
+    );
+  }
+
+  if (state.phase === 'error') {
+    return (
+      <ThemedView type="backgroundElement" style={styles.focusCard}>
+        <ThemedText type="small">{state.message}</ThemedText>
+        <Pressable onPress={onStart} accessibilityRole="button" accessibilityLabel="Retry drafting focus plan">
+          <ThemedText type="link">Try again</ThemedText>
+        </Pressable>
+      </ThemedView>
+    );
+  }
+
+  return (
+    <ThemedView type="backgroundElement" style={styles.focusCard}>
+      <ThemedText type="small">Want to actively train on this?</ThemedText>
+      <ThemedView style={styles.nodeOfferActions}>
+        <Pressable
+          onPress={onStart}
+          style={[styles.pinButton, { backgroundColor: theme.text }]}
+          accessibilityRole="button"
+          accessibilityLabel="Start focus block">
+          <ThemedText type="smallBold" themeColor="background">
+            Start focus
+          </ThemedText>
+        </Pressable>
+        <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Not now">
+          <ThemedText type="link">Not now</ThemedText>
+        </Pressable>
+      </ThemedView>
     </ThemedView>
   );
 }
@@ -653,5 +790,13 @@ const styles = StyleSheet.create({
   },
   pinnedLabel: {
     fontStyle: 'italic',
+  },
+  focusCard: {
+    padding: Spacing.three,
+    borderRadius: Spacing.three,
+    gap: Spacing.two,
+  },
+  focusLine: {
+    lineHeight: 20,
   },
 });

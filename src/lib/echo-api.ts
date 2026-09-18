@@ -67,6 +67,17 @@ export async function summarizeDebrief(
   return postJson<{ summary: string; signals: string[] }>('/api/summarize-debrief', { turns, player });
 }
 
+// Drafts a short, concrete focus plan for a node the player just chose to
+// actively train on — a deliberate exception to Echo's usual "only reflect
+// back what's evidenced" restraint, see server/api/focus-plan.ts.
+export async function draftFocusPlan(
+  player: PlayerContext,
+  label: string,
+  context: { transcript: string; echoResponse: string },
+): Promise<EchoApiResult<{ plan: string[] }>> {
+  return postJson<{ plan: string[] }>('/api/focus-plan', { player, label, context });
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<EchoApiResult<T>> {
   const deviceId = await getDeviceId();
   const controller = new AbortController();
