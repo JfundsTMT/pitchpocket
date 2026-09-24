@@ -279,7 +279,7 @@ export default function HomeScreen() {
                 </Text>
               ) : (
                 activeFocusBlocks.slice(0, 3).map((block) => (
-                  <Text key={block.id} style={styles.trainingBody} numberOfLines={1}>
+                  <Text key={block.id} style={styles.trainingItem} numberOfLines={1}>
                     {'•'} {block.label}
                   </Text>
                 ))
@@ -775,6 +775,12 @@ const styles = StyleSheet.create({
   trainingBody: {
     color: Hub.cardSubtle,
     fontSize: 13,
+    lineHeight: 19,
+  },
+  trainingItem: {
+    color: Hub.cardInk,
+    fontSize: 13,
+    fontWeight: '700',
     lineHeight: 19,
   },
   hintRow: {
