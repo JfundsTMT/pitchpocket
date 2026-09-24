@@ -1,8 +1,9 @@
-import { router, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenHeader } from '@/components/screen-header';
 import { CareerTheme } from '@/constants/career-theme';
 import { Spacing } from '@/constants/theme';
 import { resolvePlayerContext } from '@/features/debrief/resolve-player-context';
@@ -119,13 +120,7 @@ export function MindMapScreen() {
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back">
-            <Text style={styles.backLink}>Back</Text>
-          </Pressable>
-          <Text style={styles.title}>Mind Map</Text>
-          <View style={styles.headerSpacer} />
-        </View>
+        <ScreenHeader title="Mind Map" />
 
         <View style={styles.tabRow}>
           <Pressable
@@ -474,27 +469,6 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.three,
-  },
-  backLink: {
-    color: CareerTheme.accent,
-    fontSize: 15,
-    fontWeight: '600',
-    minWidth: 50,
-  },
-  title: {
-    color: CareerTheme.text,
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  headerSpacer: {
-    minWidth: 50,
   },
   tabRow: {
     flexDirection: 'row',

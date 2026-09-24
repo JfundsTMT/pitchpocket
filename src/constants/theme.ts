@@ -7,6 +7,8 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+import { CareerTheme } from '@/constants/career-theme';
+
 export const Colors = {
   light: {
     text: '#000000',
@@ -15,15 +17,19 @@ export const Colors = {
     backgroundSelected: '#E0E1E6',
     textSecondary: '#60646C',
   },
-  // Harmonized with CareerTheme (career-theme.ts) — the app forces dark mode
-  // (app.json userInterfaceStyle) so every Themed* screen sits on the same
-  // broadcast-hub field as the career home screen.
+  // Values are CareerTheme's (career-theme.ts) literal values, not a
+  // separate palette that happens to look similar — the app forces dark
+  // mode (app.json userInterfaceStyle), so every Themed* screen must render
+  // pixel-identical to the raw-CareerTheme screens or the app visibly
+  // changes shade when navigating between them. Import from CareerTheme
+  // directly rather than re-typing hex values here, so this can't drift
+  // again the way it did before.
   dark: {
-    text: '#F5F7FA',
-    background: '#0A0F0C',
-    backgroundElement: '#151B16',
-    backgroundSelected: '#20291F',
-    textSecondary: '#8A93A6',
+    text: CareerTheme.text,
+    background: CareerTheme.background,
+    backgroundElement: CareerTheme.surface,
+    backgroundSelected: CareerTheme.accentMuted,
+    textSecondary: CareerTheme.textSecondary,
   },
 } as const;
 

@@ -10,6 +10,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PrimaryButton } from '@/components/primary-button';
+import { ScreenHeader } from '@/components/screen-header';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
@@ -294,29 +296,17 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
     setFocusPrompts((current) => ({ ...current, [turnIndex]: { phase: 'skipped' } }));
   }
 
+  const hideHeaderBack = state.phase === 'recording' || state.phase === 'transcribing' || state.phase === 'thinking';
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
+        <ScreenHeader title="Debrief with Echo" hideBack={hideHeaderBack} />
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.select({ ios: 12, default: 0 })}>
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-            {state.phase !== 'recording' && state.phase !== 'transcribing' && state.phase !== 'thinking' ? (
-              <Pressable
-                onPress={() => router.back()}
-                hitSlop={12}
-                style={styles.backLink}
-                accessibilityRole="button"
-                accessibilityLabel="Back">
-                <ThemedText type="small" themeColor="textSecondary">
-                  ‹ Back
-                </ThemedText>
-              </Pressable>
-            ) : null}
-            <ThemedText type="title" style={styles.title}>
-              Debrief with Echo
-            </ThemedText>
             {fixture ? (
               <ThemedText type="default" themeColor="textSecondary" style={styles.fixtureContext}>
                 vs {fixture.opponent} — {formatFixtureDate(fixture.date)}
@@ -464,17 +454,7 @@ function Composer({ draft, onChangeDraft, onStartRecording, onSend }: BodyHandle
           accessibilityLabel="Record voice message">
           <ThemedText type="smallBold">Mic</ThemedText>
         </Pressable>
-        <Pressable
-          onPress={onSend}
-          disabled={!canSend}
-          style={[styles.sendButton, { backgroundColor: theme.text, opacity: canSend ? 1 : 0.3 }]}
-          accessibilityRole="button"
-          accessibilityLabel="Send message"
-          accessibilityState={{ disabled: !canSend }}>
-          <ThemedText type="smallBold" themeColor="background">
-            Send
-          </ThemedText>
-        </Pressable>
+        <PrimaryButton label="Send" onPress={onSend} disabled={!canSend} style={styles.sendButton} />
       </ThemedView>
     </ThemedView>
   );
@@ -548,8 +528,6 @@ function FocusBlockPrompt({
   onStart: () => void;
   onSkip: () => void;
 }) {
-  const theme = useTheme();
-
   if (state.phase === 'skipped') return null;
 
   if (state.phase === 'drafting') {
@@ -588,15 +566,7 @@ function FocusBlockPrompt({
     <ThemedView type="backgroundElement" style={styles.focusCard}>
       <ThemedText type="small">Want to actively train on this?</ThemedText>
       <ThemedView style={styles.nodeOfferActions}>
-        <Pressable
-          onPress={onStart}
-          style={[styles.pinButton, { backgroundColor: theme.text }]}
-          accessibilityRole="button"
-          accessibilityLabel="Start focus block">
-          <ThemedText type="smallBold" themeColor="background">
-            Start focus
-          </ThemedText>
-        </Pressable>
+        <PrimaryButton label="Start focus" onPress={onStart} style={styles.pinButton} />
         <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Not now">
           <ThemedText type="link">Not now</ThemedText>
         </Pressable>
@@ -606,40 +576,16 @@ function FocusBlockPrompt({
 }
 
 function NodeOfferPrompt({ offer, onPin, onSkip }: { offer: NodeOffer; onPin: () => void; onSkip: () => void }) {
-  const theme = useTheme();
   return (
     <ThemedView type="backgroundSelected" style={styles.nodeOfferCard}>
       <ThemedText type="smallBold">Pin this: {offer.label}</ThemedText>
       <ThemedView style={styles.nodeOfferActions}>
-        <Pressable
-          onPress={onPin}
-          style={[styles.pinButton, { backgroundColor: theme.text }]}
-          accessibilityRole="button"
-          accessibilityLabel={`Pin insight: ${offer.label}`}>
-          <ThemedText type="smallBold" themeColor="background">
-            Pin it
-          </ThemedText>
-        </Pressable>
+        <PrimaryButton label="Pin it" onPress={onPin} style={styles.pinButton} />
         <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Skip this insight">
           <ThemedText type="link">Not now</ThemedText>
         </Pressable>
       </ThemedView>
     </ThemedView>
-  );
-}
-
-function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
-  const theme = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.primaryButton, { backgroundColor: theme.text }]}
-      accessibilityRole="button"
-      accessibilityLabel={label}>
-      <ThemedText type="smallBold" themeColor="background">
-        {label}
-      </ThemedText>
-    </Pressable>
   );
 }
 
@@ -682,14 +628,7 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
     paddingBottom: Spacing.six,
   },
-  title: {
-    marginBottom: Spacing.two,
-  },
-  backLink: {
-    alignSelf: 'flex-start',
-  },
   fixtureContext: {
-    marginTop: -Spacing.two,
     marginBottom: Spacing.one,
   },
   status: {
@@ -702,11 +641,6 @@ const styles = StyleSheet.create({
   finishLink: {
     alignItems: 'center',
     padding: Spacing.two,
-  },
-  primaryButton: {
-    paddingVertical: Spacing.three,
-    borderRadius: Spacing.three,
-    alignItems: 'center',
   },
   composer: {
     borderRadius: Spacing.three,

@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PrimaryButton } from '@/components/primary-button';
+import { ScreenHeader } from '@/components/screen-header';
 import { CareerTheme } from '@/constants/career-theme';
 import { Spacing } from '@/constants/theme';
 import { useOnboardingGate } from '@/features/onboarding/onboarding-gate';
@@ -163,17 +165,8 @@ export function AccountScreen() {
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safeArea}>
+        <ScreenHeader title="Account & Backup" />
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Pressable
-            onPress={() => router.back()}
-            hitSlop={12}
-            style={styles.backLink}
-            accessibilityRole="button"
-            accessibilityLabel="Back">
-            <Text style={styles.backText}>‹ Back</Text>
-          </Pressable>
-          <Text style={styles.title}>Account & Backup</Text>
-
           {!isSyncConfigured ? (
             <Text style={styles.body}>
               Cloud backup isn’t configured in this build — your career is saved on this phone only.
@@ -199,28 +192,18 @@ export function AccountScreen() {
               {error ? <Text style={styles.error}>{error}</Text> : null}
 
               {mode === 'status' && gateStatus !== 'complete' && hasSession ? (
-                <Pressable
-                  onPress={restoreWithExistingSession}
-                  disabled={busy}
-                  style={[styles.primaryButton, { opacity: busy ? 0.4 : 1 }]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Restore this career">
-                  <Text style={styles.primaryButtonText}>{busy ? 'RESTORING…' : 'RESTORE THIS CAREER'}</Text>
-                </Pressable>
+                <PrimaryButton label="Restore this career" busy={busy} onPress={restoreWithExistingSession} />
               ) : null}
 
               {mode === 'status' && !userEmail && hasSession ? (
-                <Pressable
+                <PrimaryButton
+                  label="Add your email"
                   onPress={() => {
                     setError(null);
                     setNotice(null);
                     setMode('attach_email');
                   }}
-                  style={styles.primaryButton}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add your email">
-                  <Text style={styles.primaryButtonText}>ADD YOUR EMAIL</Text>
-                </Pressable>
+                />
               ) : null}
 
               {mode === 'attach_email' || mode === 'restore_email' ? (
@@ -236,14 +219,12 @@ export function AccountScreen() {
                     style={styles.input}
                     accessibilityLabel="Email address"
                   />
-                  <Pressable
+                  <PrimaryButton
+                    label="Send code"
+                    busy={busy}
+                    disabled={!email.includes('@')}
                     onPress={mode === 'attach_email' ? beginAttach : beginRestore}
-                    disabled={busy || !email.includes('@')}
-                    style={[styles.primaryButton, { opacity: busy || !email.includes('@') ? 0.4 : 1 }]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Send code">
-                    <Text style={styles.primaryButtonText}>{busy ? 'SENDING…' : 'SEND CODE'}</Text>
-                  </Pressable>
+                  />
                 </>
               ) : null}
 
@@ -259,14 +240,12 @@ export function AccountScreen() {
                     style={styles.input}
                     accessibilityLabel="Verification code"
                   />
-                  <Pressable
+                  <PrimaryButton
+                    label="Confirm"
+                    busy={busy}
+                    disabled={code.trim().length < 6}
                     onPress={mode === 'attach_code' ? confirmAttach : confirmRestore}
-                    disabled={busy || code.trim().length < 6}
-                    style={[styles.primaryButton, { opacity: busy || code.trim().length < 6 ? 0.4 : 1 }]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Confirm code">
-                    <Text style={styles.primaryButtonText}>{busy ? 'CHECKING…' : 'CONFIRM'}</Text>
-                  </Pressable>
+                  />
                 </>
               ) : null}
 
@@ -323,18 +302,6 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
     paddingBottom: Spacing.six,
   },
-  backLink: {
-    alignSelf: 'flex-start',
-  },
-  backText: {
-    color: CareerTheme.textSecondary,
-    fontSize: 14,
-  },
-  title: {
-    color: CareerTheme.text,
-    fontSize: 28,
-    fontWeight: '800',
-  },
   statusCard: {
     backgroundColor: CareerTheme.surface,
     borderLeftWidth: 4,
@@ -368,18 +335,6 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     color: CareerTheme.text,
     fontSize: 16,
-  },
-  primaryButton: {
-    backgroundColor: CareerTheme.accent,
-    borderRadius: 8,
-    paddingVertical: Spacing.two + 2,
-    alignItems: 'center',
-  },
-  primaryButtonText: {
-    color: CareerTheme.accentText,
-    fontSize: 13,
-    fontWeight: '900',
-    letterSpacing: 1,
   },
   ghostLink: {
     alignItems: 'center',

@@ -1,8 +1,10 @@
-import { router, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PrimaryButton } from '@/components/primary-button';
+import { ScreenHeader } from '@/components/screen-header';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
@@ -108,20 +110,8 @@ export function FlowRecipeScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
+        <ScreenHeader title="Flow Recipe" />
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Pressable
-            onPress={() => router.back()}
-            hitSlop={12}
-            style={styles.backLink}
-            accessibilityRole="button"
-            accessibilityLabel="Back">
-            <ThemedText type="small" themeColor="textSecondary">
-              ‹ Back
-            </ThemedText>
-          </Pressable>
-          <ThemedText type="title" style={styles.title}>
-            Flow Recipe
-          </ThemedText>
           <ThemedText type="default" themeColor="textSecondary" style={styles.subtitle}>
             Your personal conditions for your best football — not advice, evidence from your own performances. Add,
             edit, or remove anything; it&apos;s yours.
@@ -179,15 +169,7 @@ export function FlowRecipeScreen() {
               style={[styles.addInput, { color: theme.text, backgroundColor: theme.backgroundElement }]}
               accessibilityLabel="New reminder"
             />
-            <Pressable
-              onPress={handleAdd}
-              style={[styles.addButton, { backgroundColor: theme.text }]}
-              accessibilityRole="button"
-              accessibilityLabel="Add reminder">
-              <ThemedText type="smallBold" themeColor="background">
-                Add
-              </ThemedText>
-            </Pressable>
+            <PrimaryButton label="Add" onPress={handleAdd} style={styles.addButton} />
           </ThemedView>
 
           {synthesizeError ? (
@@ -219,8 +201,6 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     paddingBottom: Spacing.six,
   },
-  backLink: { alignSelf: 'flex-start' },
-  title: { marginTop: Spacing.one },
   subtitle: { marginBottom: Spacing.two, lineHeight: 20 },
   itemCard: {
     flexDirection: 'row',

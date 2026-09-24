@@ -1,12 +1,13 @@
-import { Link, router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PrimaryButton } from '@/components/primary-button';
+import { ScreenHeader } from '@/components/screen-header';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
 import { loadDebriefHistory, type DebriefRecord } from '@/lib/debrief-history';
 import { deleteFixture, loadFixtures, type Fixture } from '@/lib/fixtures';
 
@@ -59,26 +60,9 @@ export function FixturesListScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
+        <ScreenHeader title="Fixtures" />
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Pressable
-            onPress={() => router.back()}
-            hitSlop={12}
-            style={styles.backLink}
-            accessibilityRole="button"
-            accessibilityLabel="Back">
-            <ThemedText type="small" themeColor="textSecondary">
-              ‹ Back
-            </ThemedText>
-          </Pressable>
-          <ThemedText type="title" style={styles.title}>
-            Fixtures
-          </ThemedText>
-
-          <Link href="/add-fixture" asChild>
-            <Pressable accessibilityRole="button" accessibilityLabel="Add a fixture">
-              <PrimaryButtonInner label="Add a fixture" />
-            </Pressable>
-          </Link>
+          <PrimaryButton label="Add a fixture" onPress={() => router.push('/add-fixture')} />
 
           <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionLabel}>
             UPCOMING
@@ -135,12 +119,10 @@ export function FixturesListScreen() {
                       Debriefed
                     </ThemedText>
                   ) : (
-                    <Pressable
+                    <PrimaryButton
+                      label="Debrief with Echo"
                       onPress={() => router.push({ pathname: '/debrief', params: { fixtureId: fixture.id } })}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Debrief with Echo about vs ${fixture.opponent}`}>
-                      <PrimaryButtonInner label="Debrief with Echo" />
-                    </Pressable>
+                    />
                   )}
                   <Pressable
                     onPress={() => confirmDelete(fixture)}
@@ -160,17 +142,6 @@ export function FixturesListScreen() {
   );
 }
 
-function PrimaryButtonInner({ label }: { label: string }) {
-  const theme = useTheme();
-  return (
-    <ThemedView style={[styles.primaryButton, { backgroundColor: theme.text }]}>
-      <ThemedText type="smallBold" themeColor="background">
-        {label}
-      </ThemedText>
-    </ThemedView>
-  );
-}
-
 function formatFixtureDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 }
@@ -184,12 +155,6 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     paddingBottom: Spacing.six,
   },
-  title: {
-    marginBottom: Spacing.one,
-  },
-  backLink: {
-    alignSelf: 'flex-start',
-  },
   sectionLabel: {
     letterSpacing: 0.5,
     marginTop: Spacing.three,
@@ -198,12 +163,6 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
     borderRadius: Spacing.three,
     gap: Spacing.one,
-  },
-  primaryButton: {
-    paddingVertical: Spacing.three,
-    borderRadius: Spacing.three,
-    alignItems: 'center',
-    marginTop: Spacing.one,
   },
   deleteLink: {
     textDecorationLine: 'underline',

@@ -10,18 +10,17 @@ import { useOnboardingGate } from '@/features/onboarding/onboarding-gate';
 import { AGE_BRACKETS, FEET } from '@/features/onboarding/onboarding-options';
 import { loadDebriefHistory, type DebriefRecord } from '@/lib/debrief-history';
 import { loadFixtures, type Fixture } from '@/lib/fixtures';
+import { loadFocusBlocks, type FocusBlock } from '@/lib/focus-blocks';
 import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 import { syncNow } from '@/lib/sync';
 
-// Local palette for the broadcast-hub look. The anatomy follows the classic
-// console career-hub grammar (angled club banner, tab strip, advance
-// calendar, light data cards on a dark stadium field) — colour values and
-// copy are entirely our own: pitch green + volt on near-black, not
-// stadium blue.
+// Local palette for the broadcast-hub look — structural/panel colors only.
+// The brand accent itself is CareerTheme.accent, not a separate value here,
+// so the hero CTA, headline, and news ribbon render the exact same green as
+// every other screen's primary action rather than their own one-off shade.
 const Hub = {
   field: '#0A0F0C',
   heroPanel: '#0E2B1C',
-  volt: '#A9E92C',
   cardLight: '#EEF0F3',
   cardInk: '#171A20',
   cardSubtle: '#59606D',
@@ -39,6 +38,7 @@ export default function HomeScreen() {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [history, setHistory] = useState<DebriefRecord[]>([]);
+  const [focusBlocks, setFocusBlocks] = useState<FocusBlock[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
 
   useFocusEffect(
@@ -46,12 +46,13 @@ export default function HomeScreen() {
       if (status !== 'complete') return;
       let cancelled = false;
       const loadAll = () =>
-        Promise.all([loadPlayerProfile(), loadFixtures(), loadDebriefHistory()]).then(
-          ([loadedProfile, loadedFixtures, loadedHistory]) => {
+        Promise.all([loadPlayerProfile(), loadFixtures(), loadDebriefHistory(), loadFocusBlocks()]).then(
+          ([loadedProfile, loadedFixtures, loadedHistory, loadedFocusBlocks]) => {
             if (cancelled) return;
             setProfile(loadedProfile);
             setFixtures(loadedFixtures);
             setHistory(loadedHistory);
+            setFocusBlocks(loadedFocusBlocks);
             setDataLoaded(true);
           },
         );
@@ -84,6 +85,7 @@ export default function HomeScreen() {
   }
 
   const identity = resolvePlayerContext(profile);
+  const activeFocusBlocks = focusBlocks.filter((b) => b.status === 'active');
   const { upcomingFixture, fixtureNeedingDebrief } = deriveFixtureState(fixtures, history);
   const nextFixture = fixtureNeedingDebrief ?? upcomingFixture;
   const upcomingCount = fixtures.filter((f) => new Date(f.date).getTime() >= Date.now()).length;
@@ -257,18 +259,33 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          {/* Training scaffold — deliberately not wired up yet */}
-          <View style={[styles.lightCard, styles.trainingCard]}>
-            <View style={styles.trainingHeader}>
-              <Text style={styles.lightCardTitle}>TRAINING</Text>
-              <View style={styles.soonPill}>
-                <Text style={styles.soonPillText}>COMING SOON</Text>
+          {/* Training focus — real focus blocks, not a placeholder */}
+          <Link href="/mind-map" asChild>
+            <Pressable
+              style={[styles.lightCard, styles.trainingCard]}
+              accessibilityRole="button"
+              accessibilityLabel="Training focus">
+              <View style={styles.trainingHeader}>
+                <Text style={styles.lightCardTitle}>TRAINING FOCUS</Text>
+                {activeFocusBlocks.length > 0 ? (
+                  <View style={styles.soonPill}>
+                    <Text style={styles.soonPillText}>{activeFocusBlocks.length} ACTIVE</Text>
+                  </View>
+                ) : null}
               </View>
-            </View>
-            <Text style={styles.trainingBody}>
-              Grow your game between matches with focus blocks and training sessions.
-            </Text>
-          </View>
+              {activeFocusBlocks.length === 0 ? (
+                <Text style={styles.trainingBody}>
+                  Nothing active yet — pin an insight in a debrief and choose to train on it.
+                </Text>
+              ) : (
+                activeFocusBlocks.slice(0, 3).map((block) => (
+                  <Text key={block.id} style={styles.trainingBody} numberOfLines={1}>
+                    {'•'} {block.label}
+                  </Text>
+                ))
+              )}
+            </Pressable>
+          </Link>
 
           {/* Footer control hints — every chip is a real action */}
           <View style={styles.hintRow}>
@@ -292,7 +309,7 @@ export default function HomeScreen() {
             </Link>
             <Link href="/mind-map" asChild>
               <Pressable style={styles.hint} accessibilityRole="button" accessibilityLabel="Mind map">
-                <View style={[styles.hintKey, { backgroundColor: Hub.volt }]}>
+                <View style={[styles.hintKey, { backgroundColor: CareerTheme.accent }]}>
                   <Text style={styles.hintKeyTextDark}>M</Text>
                 </View>
                 <Text style={styles.hintLabel}>Mind Map</Text>
@@ -523,7 +540,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   heroHeadline: {
-    color: Hub.volt,
+    color: CareerTheme.accent,
     fontSize: 30,
     fontWeight: '900',
     letterSpacing: 1,
@@ -592,7 +609,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   heroButton: {
-    backgroundColor: Hub.volt,
+    backgroundColor: CareerTheme.accent,
     borderRadius: 4,
     paddingVertical: Spacing.two + 2,
     alignItems: 'center',
@@ -706,7 +723,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   newsRibbonChip: {
-    backgroundColor: Hub.volt,
+    backgroundColor: CareerTheme.accent,
     paddingHorizontal: Spacing.two,
     justifyContent: 'center',
   },

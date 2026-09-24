@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PrimaryButton } from '@/components/primary-button';
+import { ScreenHeader } from '@/components/screen-header';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
@@ -48,21 +50,8 @@ export function AddFixtureScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
+        <ScreenHeader title="Add a fixture" />
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Pressable
-            onPress={() => router.back()}
-            hitSlop={12}
-            style={styles.backLink}
-            accessibilityRole="button"
-            accessibilityLabel="Back">
-            <ThemedText type="small" themeColor="textSecondary">
-              ‹ Back
-            </ThemedText>
-          </Pressable>
-          <ThemedText type="title" style={styles.title}>
-            Add a fixture
-          </ThemedText>
-
           <ThemedText type="smallBold" themeColor="textSecondary" style={styles.label}>
             OPPONENT
           </ThemedText>
@@ -111,17 +100,7 @@ export function AddFixtureScreen() {
             accessibilityLabel="Competition, optional"
           />
 
-          <Pressable
-            onPress={handleSave}
-            disabled={!canSave}
-            style={[styles.saveButton, { backgroundColor: theme.text, opacity: canSave ? 1 : 0.3 }]}
-            accessibilityRole="button"
-            accessibilityLabel="Save fixture"
-            accessibilityState={{ disabled: !canSave }}>
-            <ThemedText type="smallBold" themeColor="background">
-              Save fixture
-            </ThemedText>
-          </Pressable>
+          <PrimaryButton label="Save fixture" onPress={handleSave} disabled={!canSave} style={styles.saveButton} />
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -139,12 +118,6 @@ const styles = StyleSheet.create({
     padding: Spacing.four,
     gap: Spacing.two,
     paddingBottom: Spacing.six,
-  },
-  title: {
-    marginBottom: Spacing.two,
-  },
-  backLink: {
-    alignSelf: 'flex-start',
   },
   label: {
     letterSpacing: 0.5,
