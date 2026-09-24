@@ -5,8 +5,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/screen-header';
 import { CareerTheme } from '@/constants/career-theme';
+import { FOCUS_PLAN_PHRASES } from '@/constants/loading-phrases';
 import { Spacing } from '@/constants/theme';
 import { resolvePlayerContext } from '@/features/debrief/resolve-player-context';
+import { useLoadingPhrase } from '@/hooks/use-loading-phrase';
 import { deleteDebriefRecord, loadDebriefHistory, type DebriefRecord, type DebriefTurn } from '@/lib/debrief-history';
 import { draftFocusPlan } from '@/lib/echo-api';
 import { loadFixtures, type Fixture } from '@/lib/fixtures';
@@ -310,6 +312,7 @@ function NodeDetailSheet({
 }) {
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
+  const draftingPhrase = useLoadingPhrase(drafting, FOCUS_PLAN_PHRASES);
 
   function confirmDelete() {
     Alert.alert('Remove this insight', "This can't be undone.", [
@@ -366,6 +369,7 @@ function NodeDetailSheet({
         ) : drafting ? (
           <View style={styles.focusSection}>
             <ActivityIndicator color={CareerTheme.accent} />
+            <Text style={styles.focusActionText}>{draftingPhrase}</Text>
           </View>
         ) : (
           <View style={styles.focusSection}>

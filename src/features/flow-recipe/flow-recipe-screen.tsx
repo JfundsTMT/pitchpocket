@@ -7,8 +7,10 @@ import { PrimaryButton } from '@/components/primary-button';
 import { ScreenHeader } from '@/components/screen-header';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { FLOW_RECIPE_PHRASES } from '@/constants/loading-phrases';
 import { Spacing } from '@/constants/theme';
 import { resolvePlayerContext } from '@/features/debrief/resolve-player-context';
+import { useLoadingPhrase } from '@/hooks/use-loading-phrase';
 import { useTheme } from '@/hooks/use-theme';
 import { buildRecentDebriefContext, loadDebriefHistory } from '@/lib/debrief-history';
 import { synthesizeFlowRecipe } from '@/lib/echo-api';
@@ -98,6 +100,7 @@ export function FlowRecipeScreen() {
   }
 
   const theme = useTheme();
+  const synthesizingPhrase = useLoadingPhrase(synthesizing, FLOW_RECIPE_PHRASES);
 
   if (!loaded) {
     return (
@@ -184,7 +187,7 @@ export function FlowRecipeScreen() {
             style={[styles.synthesizeButton, { borderColor: theme.text, opacity: synthesizing ? 0.5 : 1 }]}
             accessibilityRole="button"
             accessibilityLabel="Let Echo draft suggestions">
-            <ThemedText type="smallBold">{synthesizing ? 'Reading your debriefs…' : 'Let Echo draft suggestions'}</ThemedText>
+            <ThemedText type="smallBold">{synthesizing ? synthesizingPhrase : 'Let Echo draft suggestions'}</ThemedText>
           </Pressable>
         </ScrollView>
       </SafeAreaView>

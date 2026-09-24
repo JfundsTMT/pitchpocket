@@ -773,7 +773,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   trainingBody: {
-    color: Hub.cardSubtle,
+    color: Hub.cardInk,
     fontSize: 13,
     lineHeight: 19,
   },

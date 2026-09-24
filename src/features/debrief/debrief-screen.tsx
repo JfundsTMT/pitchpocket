@@ -10,12 +10,15 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AudioWaveform } from '@/components/audio-waveform';
 import { PrimaryButton } from '@/components/primary-button';
 import { ScreenHeader } from '@/components/screen-header';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ECHO_THINKING_PHRASES, FOCUS_PLAN_PHRASES, TRANSCRIBING_PHRASES } from '@/constants/loading-phrases';
 import { Spacing } from '@/constants/theme';
 import { resolvePlayerContext } from '@/features/debrief/resolve-player-context';
+import { useLoadingPhrase } from '@/hooks/use-loading-phrase';
 import { useTheme } from '@/hooks/use-theme';
 import {
   appendDebriefTurn,
@@ -82,7 +85,7 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   const [focusPrompts, setFocusPrompts] = useState<Record<number, FocusPromptState>>({});
   const [draft, setDraft] = useState('');
   const [state, setState] = useState<ScreenState>({ phase: 'loading_profile' });
-  const recorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
+  const recorder = useAudioRecorder({ ...RecordingPresets.LOW_QUALITY, isMeteringEnabled: true });
   const recorderState = useAudioRecorderState(recorder, 100);
   const autoStopFired = useRef(false);
   // The persisted record for this conversation — null until the first
@@ -297,6 +300,8 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   }
 
   const hideHeaderBack = state.phase === 'recording' || state.phase === 'transcribing' || state.phase === 'thinking';
+  const transcribingPhrase = useLoadingPhrase(state.phase === 'transcribing', TRANSCRIBING_PHRASES);
+  const thinkingPhrase = useLoadingPhrase(state.phase === 'thinking', ECHO_THINKING_PHRASES);
 
   return (
     <ThemedView style={styles.container}>
@@ -336,6 +341,9 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
               onDismissError: () => setState({ phase: 'composing' }),
               onDone: () => router.replace('/'),
               elapsedSeconds: recorderState.durationMillis ? Math.floor(recorderState.durationMillis / 1000) : 0,
+              meteringDb: recorderState.metering,
+              transcribingPhrase,
+              thinkingPhrase,
             })}
           </ScrollView>
         </KeyboardAvoidingView>
@@ -356,6 +364,9 @@ type BodyHandlers = {
   onDismissError: () => void;
   onDone: () => void;
   elapsedSeconds: number;
+  meteringDb: number | undefined;
+  transcribingPhrase: string;
+  thinkingPhrase: string;
 };
 
 function renderBody(state: ScreenState, handlers: BodyHandlers) {
@@ -379,6 +390,7 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
           <ThemedText type="default" style={styles.status}>
             Recording — {formatDuration(handlers.elapsedSeconds)}
           </ThemedText>
+          <AudioWaveform metering={handlers.meteringDb} active />
           {handlers.elapsedSeconds >= RECORDING_WARNING_SECONDS ? (
             <ThemedText type="small" themeColor="textSecondary" style={styles.status}>
               Getting long — auto-sends at 10:00 so nothing gets lost.
@@ -397,7 +409,7 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
         </>
       );
     case 'transcribing':
-      return <ThemedText type="default">Transcribing…</ThemedText>;
+      return <ThemedText type="default">{handlers.transcribingPhrase}</ThemedText>;
     case 'transcribe_error':
       return (
         <ErrorState
@@ -409,7 +421,7 @@ function renderBody(state: ScreenState, handlers: BodyHandlers) {
     case 'thinking':
       return (
         <ThemedText type="default" style={styles.status}>
-          Echo is thinking…
+          {handlers.thinkingPhrase}
         </ThemedText>
       );
     case 'echo_error':
@@ -528,12 +540,17 @@ function FocusBlockPrompt({
   onStart: () => void;
   onSkip: () => void;
 }) {
+  const draftingPhrase = useLoadingPhrase(state.phase === 'drafting', FOCUS_PLAN_PHRASES);
+
   if (state.phase === 'skipped') return null;
 
   if (state.phase === 'drafting') {
     return (
       <ThemedView type="backgroundElement" style={styles.focusCard}>
         <ActivityIndicator />
+        <ThemedText type="small" themeColor="textSecondary">
+          {draftingPhrase}
+        </ThemedText>
       </ThemedView>
     );
   }
