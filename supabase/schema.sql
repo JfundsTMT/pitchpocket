@@ -69,6 +69,16 @@ create table if not exists public.focus_blocks (
   deleted boolean not null default false
 );
 
+-- One row per player — a compact, evolving memory (durable facts, not a
+-- transcript replay), regenerated wholesale by /api/update-memory at the
+-- close of each debrief. Document semantics like flow_recipes: last-write-
+-- wins by updated_at, nothing to merge.
+create table if not exists public.player_memory (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  facts jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 -- One row per player — a curated, player-editable document (add/rewrite/
 -- delete anything), not an append-only record collection like the tables
 -- above. AI-drafted items become part of it through the same save path as
@@ -90,6 +100,7 @@ alter table public.fixtures enable row level security;
 alter table public.debriefs enable row level security;
 alter table public.mind_map_nodes enable row level security;
 alter table public.focus_blocks enable row level security;
+alter table public.player_memory enable row level security;
 alter table public.flow_recipes enable row level security;
 
 create policy "own profile" on public.player_profiles
@@ -105,6 +116,9 @@ create policy "own mind map nodes" on public.mind_map_nodes
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 create policy "own focus blocks" on public.focus_blocks
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create policy "own player memory" on public.player_memory
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 create policy "own flow recipe" on public.flow_recipes

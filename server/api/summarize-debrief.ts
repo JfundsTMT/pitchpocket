@@ -1,16 +1,16 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 
 import type { PlayerContext } from '../lib/echo-prompt.js';
 
-const anthropic = new Anthropic();
+const openai = new OpenAI();
 
-// A narrow extraction job, not a conversational one — Haiku is deliberately
-// used here (same reasoning as the crisis classifier): cheap and fast
-// enough to run after every single turn without adding real latency or
-// cost, which matters because this runs far more often than a debrief
-// reply does.
-const SUMMARY_MODEL = 'claude-haiku-4-5';
+// A narrow extraction job, not a conversational one — the mini tier is
+// deliberately used here (same reasoning as the crisis classifier): cheap
+// and fast enough to run after every single turn without adding real
+// latency or cost, which matters because this runs far more often than a
+// debrief reply does.
+const SUMMARY_MODEL = 'gpt-5-mini';
 
 type ConversationTurn = { transcript: string; echoResponse: string };
 
@@ -58,20 +58,23 @@ Produce two things:
 
 Only extract what's genuinely in the conversation. A short or thin debrief should produce a short summary and few or no signals — do not invent texture, mistakes, or patterns that aren't actually there.`;
 
-const SUMMARIZE_TOOL: Anthropic.Tool = {
-  name: 'summarize_debrief',
-  description: 'Return the compact summary and tagged signals for this debrief conversation.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      summary: { type: 'string', description: '1-3 sentence factual summary of the conversation.' },
-      signals: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Up to 5 short (3-6 word) tagged phrases capturing recurring or notable patterns, positive or negative.',
+const SUMMARIZE_TOOL: OpenAI.Chat.ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'summarize_debrief',
+    description: 'Return the compact summary and tagged signals for this debrief conversation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', description: '1-3 sentence factual summary of the conversation.' },
+        signals: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Up to 5 short (3-6 word) tagged phrases capturing recurring or notable patterns, positive or negative.',
+        },
       },
+      required: ['summary', 'signals'],
     },
-    required: ['summary', 'signals'],
   },
 };
 
@@ -111,13 +114,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     .join('\n\n');
 
   try {
-    const message = await anthropic.messages.create({
+    const completion = await openai.chat.completions.create({
       model: SUMMARY_MODEL,
-      max_tokens: 512,
-      system: SYSTEM_PROMPT,
+      max_completion_tokens: 512,
+      reasoning_effort: 'low',
       tools: [SUMMARIZE_TOOL],
-      tool_choice: { type: 'tool', name: 'summarize_debrief' },
+      tool_choice: { type: 'function', function: { name: 'summarize_debrief' } },
       messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
         {
           role: 'user',
           content: `Player: ${player.positionLabel}, ${player.level}.\n\nThe debrief conversation so far:\n\n${conversationText}\n\nExtract the summary and signals.`,
@@ -125,14 +129,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ],
     });
 
-    const toolBlock = message.content.find(
-      (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use' && block.name === 'summarize_debrief',
-    );
-    const input = toolBlock?.input as { summary?: unknown; signals?: unknown } | undefined;
-    const summary = typeof input?.summary === 'string' ? input.summary.slice(0, 500) : '';
-    const signals = Array.isArray(input?.signals)
-      ? input.signals.filter((s): s is string => typeof s === 'string').slice(0, 5).map((s) => s.slice(0, 100))
-      : [];
+    const toolCall = completion.choices[0]?.message.tool_calls?.find((call) => call.function.name === 'summarize_debrief');
+    let summary = '';
+    let signals: string[] = [];
+    if (toolCall) {
+      try {
+        const args = JSON.parse(toolCall.function.arguments) as { summary?: unknown; signals?: unknown };
+        summary = typeof args.summary === 'string' ? args.summary.slice(0, 500) : '';
+        signals = Array.isArray(args.signals)
+          ? args.signals.filter((s): s is string => typeof s === 'string').slice(0, 5).map((s) => s.slice(0, 100))
+          : [];
+      } catch (error) {
+        console.error('summarize_debrief arguments were not valid JSON', error);
+      }
+    }
 
     res.status(200).json({ summary, signals });
   } catch (error) {

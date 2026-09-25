@@ -39,13 +39,13 @@ export async function getEchoResponse(
   turnsSoFar: DebriefTurn[],
   transcript: string,
   player: PlayerContext,
-  history: PastDebrief[],
+  memory: string[],
 ): Promise<EchoApiResult<{ echoResponse: string; nodeOffer?: { label: string } }>> {
   return postJson<{ echoResponse: string; nodeOffer?: { label: string } }>('/api/debrief-response', {
     turns: turnsSoFar,
     transcript,
     player,
-    history,
+    memory,
   });
 }
 
@@ -65,6 +65,19 @@ export async function summarizeDebrief(
   player: PlayerContext,
 ): Promise<EchoApiResult<{ summary: string; signals: string[] }>> {
   return postJson<{ summary: string; signals: string[] }>('/api/summarize-debrief', { turns, player });
+}
+
+// Regenerates the player's durable memory — a compact, evolving set of
+// facts, not a replay of every debrief (see player-memory.ts /
+// server/api/update-memory.ts). Called once at the close of a debrief
+// (not every turn, unlike summarizeDebrief), since it's a step-back
+// synthesis over recent history rather than a per-turn record.
+export async function updateMemory(
+  player: PlayerContext,
+  existingMemory: string[],
+  recentDebriefs: PastDebrief[],
+): Promise<EchoApiResult<{ facts: string[] }>> {
+  return postJson<{ facts: string[] }>('/api/update-memory', { player, existingMemory, recentDebriefs });
 }
 
 // Drafts a short, concrete focus plan for a node the player just chose to

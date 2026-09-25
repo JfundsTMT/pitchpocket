@@ -29,12 +29,12 @@ import {
   setNodeOfferStatus,
   type DebriefTurn,
   type NodeOffer,
-  type PastDebrief,
 } from '@/lib/debrief-history';
-import { draftFocusPlan, getEchoResponse, summarizeDebrief, transcribeAudio, type EchoApiError } from '@/lib/echo-api';
+import { draftFocusPlan, getEchoResponse, summarizeDebrief, transcribeAudio, updateMemory, type EchoApiError } from '@/lib/echo-api';
 import { createFocusBlock } from '@/lib/focus-blocks';
 import { loadFixtures, type Fixture } from '@/lib/fixtures';
 import { createMindMapNode } from '@/lib/mind-map-nodes';
+import { loadPlayerMemory, savePlayerMemory } from '@/lib/player-memory';
 import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 
 // Soft warning threshold shown in the UI. The real limit is enforced
@@ -79,7 +79,7 @@ type FocusPromptState =
 
 export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
-  const [pastDebriefs, setPastDebriefs] = useState<PastDebrief[]>([]);
+  const [memoryFacts, setMemoryFacts] = useState<string[]>([]);
   const [fixture, setFixture] = useState<Fixture | null>(null);
   const [turns, setTurns] = useState<DebriefTurn[]>([]);
   const [focusPrompts, setFocusPrompts] = useState<Record<number, FocusPromptState>>({});
@@ -94,10 +94,10 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   const recordId = useRef<string | null>(null);
 
   useEffect(() => {
-    Promise.all([loadPlayerProfile(), loadDebriefHistory(), loadFixtures()]).then(
-      ([loadedProfile, loadedHistory, loadedFixtures]) => {
+    Promise.all([loadPlayerProfile(), loadFixtures(), loadPlayerMemory()]).then(
+      ([loadedProfile, loadedFixtures, loadedMemory]) => {
         setProfile(loadedProfile);
-        setPastDebriefs(buildRecentDebriefContext(loadedHistory));
+        setMemoryFacts(loadedMemory.facts.map((f) => f.text));
         setFixture(fixtureId ? (loadedFixtures.find((f) => f.id === fixtureId) ?? null) : null);
         setState(loadedProfile ? { phase: 'composing' } : { phase: 'no_profile' });
       },
@@ -223,7 +223,7 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   async function runEchoResponse(pendingTranscript: string) {
     if (!profile) return;
     setState({ phase: 'thinking', pendingTranscript });
-    const result = await getEchoResponse(turns, pendingTranscript, resolvePlayerContext(profile), pastDebriefs);
+    const result = await getEchoResponse(turns, pendingTranscript, resolvePlayerContext(profile), memoryFacts);
     if (!result.ok) {
       setState({ phase: 'echo_error', pendingTranscript, error: result.error });
       return;
@@ -299,6 +299,28 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
     setFocusPrompts((current) => ({ ...current, [turnIndex]: { phase: 'skipped' } }));
   }
 
+  // Never on the critical path — navigate away immediately, regenerate
+  // memory in the background. A step-back synthesis over recent history
+  // (see update-memory.ts), done once at the close of a debrief rather
+  // than every turn, so it needs the freshest history, not the mount-time
+  // snapshot this session started with.
+  function handleFinishDebrief() {
+    if (profile) {
+      regenerateMemory(profile).catch((error) => console.warn('Memory update failed', error));
+    }
+    router.replace('/');
+  }
+
+  async function regenerateMemory(currentProfile: PlayerProfile) {
+    const [freshHistory, currentMemory] = await Promise.all([loadDebriefHistory(), loadPlayerMemory()]);
+    const recentDebriefs = buildRecentDebriefContext(freshHistory);
+    const existingFacts = currentMemory.facts.map((f) => f.text);
+    const result = await updateMemory(resolvePlayerContext(currentProfile), existingFacts, recentDebriefs);
+    if (result.ok) {
+      await savePlayerMemory(result.data.facts);
+    }
+  }
+
   const hideHeaderBack = state.phase === 'recording' || state.phase === 'transcribing' || state.phase === 'thinking';
   const transcribingPhrase = useLoadingPhrase(state.phase === 'transcribing', TRANSCRIBING_PHRASES);
   const thinkingPhrase = useLoadingPhrase(state.phase === 'thinking', ECHO_THINKING_PHRASES);
@@ -339,7 +361,7 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
               onRetryTranscribe: () => runTranscription(state.phase === 'transcribe_error' ? state.fileUri : ''),
               onRetryEcho: () => runEchoResponse(state.phase === 'echo_error' ? state.pendingTranscript : ''),
               onDismissError: () => setState({ phase: 'composing' }),
-              onDone: () => router.replace('/'),
+              onDone: handleFinishDebrief,
               elapsedSeconds: recorderState.durationMillis ? Math.floor(recorderState.durationMillis / 1000) : 0,
               meteringDb: recorderState.metering,
               transcribingPhrase,

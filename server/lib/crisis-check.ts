@@ -1,21 +1,21 @@
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 
 // Echo's crisis safety override — see CLAUDE.md ("Safety override") and
 // docs/echo-framework.md ("When a player is in real distress").
 //
 // This is deliberately NOT implemented as an instruction inside Echo's own
-// system prompt. A single large persona prompt (four-layer football
-// analysis, fear philosophy, tone rules) asking the model to also
-// self-regulate around crisis is exactly the "hope it handles it well by
-// default" pattern CLAUDE.md says not to rely on — a long, character-heavy
-// prompt is more likely to stay in character than break from it cleanly.
+// system prompt. A single large persona prompt (character, competency,
+// decision framework, tone rules) asking the model to also self-regulate
+// around crisis is exactly the "hope it handles it well by default" pattern
+// CLAUDE.md says not to rely on — a long, character-heavy prompt is more
+// likely to stay in character than break from it cleanly.
 //
 // Instead: a separate, narrow classifier call with one job, gating a fixed,
 // hardcoded response. The crisis message is never LLM-generated, so it
 // can't paraphrase away the actual resources or say something unhelpful
 // under pressure.
 
-const CLASSIFIER_MODEL = 'claude-haiku-4-5';
+const CLASSIFIER_MODEL = 'gpt-5-mini';
 
 const CLASSIFIER_SYSTEM_PROMPT = `You are a safety classifier for a football (soccer) reflection app, not a conversational assistant.
 
@@ -25,16 +25,19 @@ You are only looking for genuine signals of real personal crisis or self-harm ri
 
 Respond with exactly one word: YES if there is a genuine crisis signal, or NO if there is not (including if it's just football hyperbole or ordinary frustration). When genuinely unsure, answer YES — a false alarm costs far less than missing a real signal.`;
 
-export async function containsCrisisSignal(anthropic: Anthropic, transcript: string): Promise<boolean> {
+export async function containsCrisisSignal(openai: OpenAI, transcript: string): Promise<boolean> {
   try {
-    const message = await anthropic.messages.create({
+    const completion = await openai.chat.completions.create({
       model: CLASSIFIER_MODEL,
-      max_tokens: 5,
-      system: CLASSIFIER_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: transcript }],
+      max_completion_tokens: 5,
+      reasoning_effort: 'low',
+      messages: [
+        { role: 'system', content: CLASSIFIER_SYSTEM_PROMPT },
+        { role: 'user', content: transcript },
+      ],
     });
-    const textBlock = message.content.find((block) => block.type === 'text');
-    return (textBlock?.text.trim().toUpperCase() ?? '').startsWith('YES');
+    const text = completion.choices[0]?.message.content ?? '';
+    return text.trim().toUpperCase().startsWith('YES');
   } catch (error) {
     // A classifier failure is a system error, not evidence of crisis — fail
     // open to the normal debrief rather than blocking the whole feature,

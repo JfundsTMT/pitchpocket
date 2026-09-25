@@ -1,15 +1,15 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 
 import type { PlayerContext } from '../lib/echo-prompt.js';
 
-const anthropic = new Anthropic();
+const openai = new OpenAI();
 
-// Same model policy as debrief-response.ts: ALWAYS claude-opus-4-8 unless
-// the founder explicitly decides otherwise. This fires rarely (only when a
-// player explicitly starts a focus block, not on every turn), so the cost
-// of the better model is negligible here.
-const CHAT_MODEL = process.env.ANTHROPIC_CHAT_MODEL ?? 'claude-opus-4-8';
+// Same model policy as debrief-response.ts: ALWAYS gpt-5 unless the founder
+// explicitly decides otherwise. This fires rarely (only when a player
+// explicitly starts a focus block, not on every turn), so the cost of the
+// better model is negligible here.
+const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL ?? 'gpt-5';
 
 function isPlayerContext(value: unknown): value is PlayerContext {
   if (!value || typeof value !== 'object') return false;
@@ -45,19 +45,22 @@ Hard rules:
 - Never invent a drill, rep count, or numeric target you have no basis for.
 - Fewer, sharper lines beat more, vaguer ones — 2 excellent lines beats 4 padded ones.`;
 
-const FOCUS_PLAN_TOOL: Anthropic.Tool = {
-  name: 'draft_focus_plan',
-  description: 'Return the drafted focus plan lines.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      plan: {
-        type: 'array',
-        items: { type: 'string' },
-        description: '2-4 short, concrete, actionable lines in plain football language.',
+const FOCUS_PLAN_TOOL: OpenAI.Chat.ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'draft_focus_plan',
+    description: 'Return the drafted focus plan lines.',
+    parameters: {
+      type: 'object',
+      properties: {
+        plan: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '2-4 short, concrete, actionable lines in plain football language.',
+        },
       },
+      required: ['plan'],
     },
-    required: ['plan'],
   },
 };
 
@@ -94,13 +97,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const echoResponse = typeof context?.echoResponse === 'string' ? context.echoResponse.slice(0, CONTEXT_FIELD_CHAR_LIMIT) : '';
 
   try {
-    const message = await anthropic.messages.create({
+    const completion = await openai.chat.completions.create({
       model: CHAT_MODEL,
-      max_tokens: 512,
-      system: SYSTEM_PROMPT,
+      max_completion_tokens: 512,
       tools: [FOCUS_PLAN_TOOL],
-      tool_choice: { type: 'tool', name: 'draft_focus_plan' },
+      tool_choice: { type: 'function', function: { name: 'draft_focus_plan' } },
       messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
         {
           role: 'user',
           content: `Player: ${player.positionLabel}, ${player.level}.\n\nThe insight they just pinned: "${label.slice(0, LABEL_CHAR_LIMIT)}"\n\nThe exchange that led to it:\nPlayer: "${transcript}"\nEcho: "${echoResponse}"\n\nDraft their focus plan.`,
@@ -108,13 +111,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ],
     });
 
-    const toolBlock = message.content.find(
-      (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use' && block.name === 'draft_focus_plan',
-    );
-    const rawPlan = toolBlock ? (toolBlock.input as { plan?: unknown }).plan : undefined;
-    const plan = Array.isArray(rawPlan)
-      ? rawPlan.filter((p): p is string => typeof p === 'string').slice(0, 4).map((p) => p.slice(0, 300))
-      : [];
+    const toolCall = completion.choices[0]?.message.tool_calls?.find((call) => call.function.name === 'draft_focus_plan');
+    let plan: string[] = [];
+    if (toolCall) {
+      try {
+        const args = JSON.parse(toolCall.function.arguments) as { plan?: unknown };
+        plan = Array.isArray(args.plan)
+          ? args.plan.filter((p): p is string => typeof p === 'string').slice(0, 4).map((p) => p.slice(0, 300))
+          : [];
+      } catch (error) {
+        console.error('draft_focus_plan arguments were not valid JSON', error);
+      }
+    }
 
     res.status(200).json({ plan });
   } catch (error) {

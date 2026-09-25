@@ -3,6 +3,7 @@ import { loadFixtures, replaceAllFixtures, type Fixture } from '@/lib/fixtures';
 import { isUnsetFlowRecipe, loadFlowRecipe, replaceFlowRecipe, type FlowRecipe } from '@/lib/flow-recipe';
 import { loadFocusBlocks, replaceAllFocusBlocks, type FocusBlock } from '@/lib/focus-blocks';
 import { loadMindMapNodes, replaceAllMindMapNodes, type MindMapNode } from '@/lib/mind-map-nodes';
+import { isUnsetPlayerMemory, loadPlayerMemory, replacePlayerMemory, type PlayerMemory } from '@/lib/player-memory';
 import { loadPlayerProfile, restorePlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 import { supabase } from '@/lib/supabase';
 import { onPushRequested } from '@/lib/sync-signal';
@@ -51,6 +52,11 @@ type FlowRecipeRow = {
   updated_at: string;
 };
 
+type PlayerMemoryRow = {
+  facts: string[];
+  updated_at: string;
+};
+
 let syncInFlight: Promise<{ changed: boolean }> | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -82,15 +88,17 @@ async function runSync(): Promise<{ changed: boolean }> {
     const userId = await ensureSignedIn();
     if (!userId) return { changed: false };
 
-    const [profile, localFixtures, localDebriefs, localNodes, localFocusBlocks, localRecipe, tombstones] = await Promise.all([
-      loadPlayerProfile(),
-      loadFixtures(),
-      loadDebriefHistory(),
-      loadMindMapNodes(),
-      loadFocusBlocks(),
-      loadFlowRecipe(),
-      loadTombstones(),
-    ]);
+    const [profile, localFixtures, localDebriefs, localNodes, localFocusBlocks, localMemory, localRecipe, tombstones] =
+      await Promise.all([
+        loadPlayerProfile(),
+        loadFixtures(),
+        loadDebriefHistory(),
+        loadMindMapNodes(),
+        loadFocusBlocks(),
+        loadPlayerMemory(),
+        loadFlowRecipe(),
+        loadTombstones(),
+      ]);
 
     // 1. Tell the server about local deletes first, so the pull below
     //    can't re-import something the player just removed.
@@ -170,19 +178,35 @@ async function runSync(): Promise<{ changed: boolean }> {
         .from('flow_recipes')
         .upsert({ user_id: userId, items: localRecipe.items, updated_at: localRecipe.updatedAt });
     }
+    // Same reasoning as the recipe above — never overwrite a real remote
+    // memory with an unset local default before the first pull.
+    if (!isUnsetPlayerMemory(localMemory)) {
+      await supabase.from('player_memory').upsert({
+        user_id: userId,
+        facts: localMemory.facts.map((f) => f.text),
+        updated_at: localMemory.updatedAt,
+      });
+    }
 
     // 3. Pull what's live and union into local by id. Debrief records are
     //    NOT immutable anymore (a reply appends a turn), so unlike fixtures,
     //    a remote copy with more turns than the local one should win —
     //    otherwise a reply made on another device would be silently dropped.
-    const [{ data: remoteFixtures }, { data: remoteDebriefs }, { data: remoteNodes }, { data: remoteFocusBlocks }, { data: remoteRecipe }] =
-      await Promise.all([
-        supabase.from('fixtures').select('id, opponent, match_date, competition, created_at').eq('deleted', false),
-        supabase.from('debriefs').select('id, fixture_id, turns, created_at, summary').eq('deleted', false),
-        supabase.from('mind_map_nodes').select('id, label, debrief_id, created_at').eq('deleted', false),
-        supabase.from('focus_blocks').select('id, node_id, label, plan, status, created_at').eq('deleted', false),
-        supabase.from('flow_recipes').select('items, updated_at').eq('user_id', userId).maybeSingle(),
-      ]);
+    const [
+      { data: remoteFixtures },
+      { data: remoteDebriefs },
+      { data: remoteNodes },
+      { data: remoteFocusBlocks },
+      { data: remoteRecipe },
+      { data: remoteMemory },
+    ] = await Promise.all([
+      supabase.from('fixtures').select('id, opponent, match_date, competition, created_at').eq('deleted', false),
+      supabase.from('debriefs').select('id, fixture_id, turns, created_at, summary').eq('deleted', false),
+      supabase.from('mind_map_nodes').select('id, label, debrief_id, created_at').eq('deleted', false),
+      supabase.from('focus_blocks').select('id, node_id, label, plan, status, created_at').eq('deleted', false),
+      supabase.from('flow_recipes').select('items, updated_at').eq('user_id', userId).maybeSingle(),
+      supabase.from('player_memory').select('facts, updated_at').eq('user_id', userId).maybeSingle(),
+    ]);
 
     let changed = false;
     if (remoteFixtures) {
@@ -219,6 +243,11 @@ async function runSync(): Promise<{ changed: boolean }> {
     const remote = remoteRecipe as FlowRecipeRow | null;
     if (remote && remote.updated_at > localRecipe.updatedAt) {
       await replaceFlowRecipe({ items: remote.items, updatedAt: remote.updated_at });
+      changed = true;
+    }
+    const remoteMem = remoteMemory as PlayerMemoryRow | null;
+    if (remoteMem && remoteMem.updated_at > localMemory.updatedAt) {
+      await replacePlayerMemory(memoryFromRow(remoteMem));
       changed = true;
     }
     return { changed };
@@ -344,4 +373,17 @@ function focusBlockFromRow(row: FocusBlockRow): FocusBlock {
     status: row.status,
     createdAt: row.created_at,
   };
+}
+
+// Remote memory facts are stored as plain strings (see savePlayerMemory) —
+// ids are assigned fresh on the way in since the server doesn't track them.
+function memoryFromRow(row: PlayerMemoryRow): PlayerMemory {
+  return {
+    facts: row.facts.map((text) => ({ id: generateId(), text })),
+    updatedAt: row.updated_at,
+  };
+}
+
+function generateId(): string {
+  return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
 }
