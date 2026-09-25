@@ -146,7 +146,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const completion = await openai.chat.completions.create({
       model: CHAT_MODEL,
-      max_completion_tokens: 1024,
+      // See crisis-check.ts comment: reasoning tokens draw from this same
+      // budget, so headroom is a correctness requirement, not just cost.
+      max_completion_tokens: 2000,
+      reasoning_effort: 'low',
       tools: [DRAFT_TOOL],
       tool_choice: { type: 'function', function: { name: 'draft_flow_recipe' } },
       messages: [

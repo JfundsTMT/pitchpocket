@@ -139,7 +139,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const completion = await openai.chat.completions.create({
       model: MEMORY_MODEL,
-      max_completion_tokens: 768,
+      // See crisis-check.ts comment: reasoning tokens draw from this same
+      // budget, so headroom is a correctness requirement, not just cost.
+      max_completion_tokens: 1500,
       reasoning_effort: 'low',
       tools: [UPDATE_MEMORY_TOOL],
       tool_choice: { type: 'function', function: { name: 'update_memory' } },

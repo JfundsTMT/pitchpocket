@@ -29,15 +29,29 @@ export async function containsCrisisSignal(openai: OpenAI, transcript: string): 
   try {
     const completion = await openai.chat.completions.create({
       model: CLASSIFIER_MODEL,
-      max_completion_tokens: 5,
+      // Generous headroom, not a cost-saving corner to cut: on a reasoning
+      // model, internal reasoning tokens are drawn from this same budget
+      // before any visible output — a tight cap here doesn't just truncate
+      // the answer, it can silently consume the whole budget and leave an
+      // EMPTY response that reads as "no crisis" rather than as a failure.
+      max_completion_tokens: 500,
       reasoning_effort: 'low',
       messages: [
         { role: 'system', content: CLASSIFIER_SYSTEM_PROMPT },
         { role: 'user', content: transcript },
       ],
     });
-    const text = completion.choices[0]?.message.content ?? '';
-    return text.trim().toUpperCase().startsWith('YES');
+    const text = (completion.choices[0]?.message.content ?? '').trim().toUpperCase();
+    if (text.startsWith('YES')) return true;
+    if (text.startsWith('NO')) return false;
+    // An empty or unparseable response is an anomaly, not a "NO" — the
+    // prompt's own rule applies here too: when genuinely unsure, treat it
+    // as a signal rather than silently waving it through.
+    console.error('Crisis classifier returned an empty/unparseable response — failing toward crisis', {
+      rawText: text,
+      finishReason: completion.choices[0]?.finish_reason,
+    });
+    return true;
   } catch (error) {
     // A classifier failure is a system error, not evidence of crisis — fail
     // open to the normal debrief rather than blocking the whole feature,

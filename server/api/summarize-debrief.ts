@@ -116,7 +116,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const completion = await openai.chat.completions.create({
       model: SUMMARY_MODEL,
-      max_completion_tokens: 512,
+      // See crisis-check.ts comment: reasoning tokens draw from this same
+      // budget, so headroom is a correctness requirement, not just cost.
+      max_completion_tokens: 1000,
       reasoning_effort: 'low',
       tools: [SUMMARIZE_TOOL],
       tool_choice: { type: 'function', function: { name: 'summarize_debrief' } },

@@ -141,7 +141,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const completion = await openai.chat.completions.create({
       model: CHAT_MODEL,
-      max_completion_tokens: 1024,
+      // Generous headroom: on a reasoning model, hidden reasoning tokens
+      // are drawn from this same budget before any visible reply — too
+      // tight a cap doesn't truncate the reply, it can silently produce an
+      // empty one. This prompt is long (the full character document), so
+      // needs real room.
+      max_completion_tokens: 3000,
+      reasoning_effort: 'low',
       messages,
       tools: [OFFER_NODE_TOOL],
       tool_choice: 'auto',
@@ -150,6 +156,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const responseMessage = completion.choices[0]?.message;
     const echoResponse = responseMessage?.content;
     if (!echoResponse) {
+      console.error('debrief-response got an empty completion', {
+        finishReason: completion.choices[0]?.finish_reason,
+        toolCalls: responseMessage?.tool_calls?.map((c) => c.function.name),
+      });
       res.status(502).json({ error: 'empty_response' });
       return;
     }
