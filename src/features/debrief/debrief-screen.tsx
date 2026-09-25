@@ -34,7 +34,7 @@ import { draftFocusPlan, getEchoResponse, summarizeDebrief, transcribeAudio, upd
 import { createFocusBlock } from '@/lib/focus-blocks';
 import { loadFixtures, type Fixture } from '@/lib/fixtures';
 import { createMindMapNode } from '@/lib/mind-map-nodes';
-import { loadPlayerMemory, savePlayerMemory } from '@/lib/player-memory';
+import { isUnsetPlayerMemory, loadPlayerMemory, savePlayerMemory } from '@/lib/player-memory';
 import { loadPlayerProfile, type PlayerProfile } from '@/lib/player-profile';
 
 // Soft warning threshold shown in the UI. The real limit is enforced
@@ -94,12 +94,29 @@ export function DebriefScreen({ fixtureId }: DebriefScreenProps) {
   const recordId = useRef<string | null>(null);
 
   useEffect(() => {
-    Promise.all([loadPlayerProfile(), loadFixtures(), loadPlayerMemory()]).then(
-      ([loadedProfile, loadedFixtures, loadedMemory]) => {
+    Promise.all([loadPlayerProfile(), loadFixtures(), loadPlayerMemory(), loadDebriefHistory()]).then(
+      ([loadedProfile, loadedFixtures, loadedMemory, loadedHistory]) => {
         setProfile(loadedProfile);
         setMemoryFacts(loadedMemory.facts.map((f) => f.text));
         setFixture(fixtureId ? (loadedFixtures.find((f) => f.id === fixtureId) ?? null) : null);
         setState(loadedProfile ? { phase: 'composing' } : { phase: 'no_profile' });
+
+        // Backfill: memory only regenerates at the close of a debrief, so an
+        // account with real history from before memory existed (or before
+        // their first debrief since) would otherwise sit with empty memory
+        // indefinitely, never reflecting anything that already happened.
+        // Never on the critical path — this debrief can start before it
+        // resolves; the result is ready for the next one either way.
+        if (loadedProfile && isUnsetPlayerMemory(loadedMemory) && loadedHistory.length > 0) {
+          updateMemory(resolvePlayerContext(loadedProfile), [], buildRecentDebriefContext(loadedHistory))
+            .then((result) => {
+              if (result.ok && result.data.facts.length > 0) {
+                savePlayerMemory(result.data.facts);
+                setMemoryFacts(result.data.facts);
+              }
+            })
+            .catch((error) => console.warn('Memory backfill failed', error));
+        }
       },
     );
   }, [fixtureId]);
